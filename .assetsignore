@@ -1,0 +1,16 @@
+# Arquivos que nunca devem ser publicados como assets estáticos
+worker/
+.git/
+.gitignore
+.wrangler/
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+migrations/
+schema.sql
+README.md
+package.json
+package-lock.json
+node_modules/
+CNAME

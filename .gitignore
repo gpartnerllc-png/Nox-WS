@@ -1,0 +1,13 @@
+node_modules/
+.wrangler/
+worker/.wrangler/
+.dev.vars
+.env
+.env.*
+*.pem
+*.log
+dist/
+worker/dist/
+backup-*.sql
+.DS_Store
+.vscode/
