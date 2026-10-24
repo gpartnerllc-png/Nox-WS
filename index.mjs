@@ -1,25 +1,15 @@
-/*!
-  Copyright 2013 Lovell Fuller and others.
-  SPDX-License-Identifier: Apache-2.0
-*/
-
-import Sharp from './constructor.mjs';
-import input from './input.mjs';
-import resize from './resize.mjs';
-import composite from './composite.mjs';
-import operation from './operation.mjs';
-import colour from './colour.mjs';
-import channel from './channel.mjs';
-import output from './output.mjs';
-import utility from './utility.mjs';
-
-input(Sharp);
-resize(Sharp);
-composite(Sharp);
-operation(Sharp);
-colour(Sharp);
-channel(Sharp);
-output(Sharp);
-utility(Sharp);
-
-export default Sharp;
+// https://www.npmjs.com/package/whatwg-url
+import { notImplemented } from "../../_internal/utils.mjs";
+export const URL = globalThis.URL;
+export const URLSearchParams = globalThis.URLSearchParams;
+export const parseURL = /* @__PURE__ */ notImplemented("whatwg-url.parseURL");
+export const basicURLParse = /* @__PURE__ */ notImplemented("whatwg-url.basicURLParse");
+export const serializeURL = /* @__PURE__ */ notImplemented("whatwg-url.serializeURL");
+export const serializeHost = /* @__PURE__ */ notImplemented("whatwg-url.serializeHost");
+export const serializeInteger = /* @__PURE__ */ notImplemented("whatwg-url.serializeInteger");
+export const serializeURLOrigin = /* @__PURE__ */ notImplemented("whatwg-url.serializeURLOrigin");
+export const setTheUsername = /* @__PURE__ */ notImplemented("whatwg-url.setTheUsername");
+export const setThePassword = /* @__PURE__ */ notImplemented("whatwg-url.setThePassword");
+export const cannotHaveAUsernamePasswordPort = /* @__PURE__ */ notImplemented("whatwg-url.cannotHaveAUsernamePasswordPort");
+export const percentDecodeBytes = /* @__PURE__ */ notImplemented("whatwg-url.percentDecodeBytes");
+export const percentDecodeString = /* @__PURE__ */ notImplemented("whatwg-url.percentDecodeString");
