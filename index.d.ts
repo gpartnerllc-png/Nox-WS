@@ -1,3 +1,1 @@
-import Undici from './types/index'
-export default Undici
-export * from './types/index'
+export { ErrorParser } from './src/parser.js';

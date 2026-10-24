@@ -1,58 +1,111 @@
 /**
-Matches any [primitive value](https://developer.mozilla.org/en-US/docs/Glossary/Primitive).
-*/
-export type Primitive = null | undefined | string | number | boolean | symbol | bigint;
-/**
-Matches a [`class` constructor](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes).
-*/
-type Constructor<T, Arguments extends unknown[] = any[]> = new (...arguments_: Arguments) => T;
-/**
-Matches a [`class`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes).
-*/
-export type Class<T, Arguments extends unknown[] = any[]> = Constructor<T, Arguments> & {
-    prototype: T;
+ * Representation of a source file chunk
+ */
+export type Chunk = {
+    chunk: string;
+    lineNumber: number;
 };
 /**
-Matches any [typed array](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray), like `Uint8Array` or `Float64Array`.
-*/
-export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array;
-declare global {
-    interface SymbolConstructor {
-        readonly observable: symbol;
-    }
+ * Representation of a parsed error message
+ */
+export interface ParsedError {
+    message: string;
+    name: string;
+    frames: StackFrame[];
+    /**
+     * Referenced to the raw error property. The value will always
+     * be an Error object even if the thrown value was not an
+     * error
+     */
+    raw: Error;
+    cause?: unknown;
+    hint?: string;
+    code?: string;
+    stack?: string;
 }
 /**
-Matches a value that is like an [Observable](https://github.com/tc39/proposal-observable).
-*/
-export type ObservableLike = {
-    subscribe(observer: (value: unknown) => void): void;
-    [Symbol.observable](): ObservableLike;
-};
-export type Falsy = false | 0 | 0n | '' | null | undefined;
-export type WeakRef<T extends object> = {
-    readonly [Symbol.toStringTag]: 'WeakRef';
-    deref(): T | undefined;
-};
-export type ArrayLike<T> = {
-    readonly [index: number]: T;
-    readonly length: number;
-};
-export type NodeStream = {
-    pipe<T extends NodeJS.WritableStream>(destination: T, options?: {
-        end?: boolean;
-    }): T;
-} & NodeJS.EventEmitter;
-export type Predicate = (value: unknown) => boolean;
-export type NonEmptyString = string & {
-    0: string;
-};
-export type Whitespace = ' ';
+ * Representation of a stack frame
+ */
+export interface StackFrame {
+    args?: any[];
+    /**
+     * The column number at which the error occurred.
+     */
+    columnNumber?: number;
+    /**
+     * The line number at which the error occurred.
+     */
+    lineNumber?: number;
+    /**
+     * The source file in which the error occurred.
+     */
+    fileName?: string;
+    /**
+     * The function name
+     */
+    functionName?: string;
+    /**
+     * Stack trace raw source
+     */
+    raw?: string;
+    /**
+     * The source property refers to the file content
+     * chunks for a given frame.
+     *
+     * The source is only available for frame type "app"
+     * and "module"
+     */
+    source?: Chunk[];
+    /**
+     * The frame type refers to the location from where the
+     * frame has originated.
+     *
+     * - native belongs to Node.js or v8 internals
+     * - module belongs to files inside `node_modules`
+     * - app belongs to application source code
+     */
+    type?: 'native' | 'module' | 'app';
+    /**
+     * The file type refers to the type of the file path.
+     * It will either point to a file on the system or
+     * points to an HTTP URL in case of errors within
+     * the browser.
+     */
+    fileType?: 'fs' | 'http' | 'https';
+}
 /**
-A string that represents a valid URL.
-
-This is a branded type to prevent incorrect TypeScript type narrowing.
-*/
-export type UrlString = string & {
-    readonly __brand: 'UrlString';
+ * Source loaders are used to read the contents of the source
+ * file.
+ */
+export type SourceLoader = (frame: StackFrame) => Promise<undefined | {
+    contents: string;
+}> | undefined | {
+    contents: string;
 };
-export {};
+/**
+ * Parsers are synchronous functions that can be used to pre-process
+ * the source value before it get parsed.
+ */
+export type Parser = (source: unknown) => any;
+/**
+ * Transformers can be async functions to post-process the parsed
+ * error value.
+ */
+export type Transformer = (error: ParsedError, source: unknown) => void | Promise<void>;
+/**
+ * Options accepted by the Youch parser
+ */
+export type YouchParserOptions = {
+    /**
+     * Define the offset to skip certain stack frames from
+     * the top
+     */
+    offset?: number;
+    /**
+     * Number of lines of code to display for the error stack frame.
+     * For example: If you set the frameSourceBuffer=7, then 3 lines
+     * above the error line and 3 lines after the error line will
+     * be displayed.
+     */
+    frameSourceBuffer?: number;
+};
