@@ -1,78 +1,64 @@
 {
-  "name": "semver",
-  "version": "7.8.5",
-  "description": "The semantic version parser used by npm.",
-  "main": "index.js",
-  "scripts": {
-    "test": "tap",
-    "snap": "tap",
-    "lint": "npm run eslint",
-    "postlint": "template-oss-check",
-    "lintfix": "npm run eslint -- --fix",
-    "posttest": "npm run lint",
-    "template-oss-apply": "template-oss-apply --force",
-    "eslint": "eslint \"**/*.{js,cjs,ts,mjs,jsx,tsx}\""
-  },
-  "devDependencies": {
-    "@npmcli/eslint-config": "^7.0.0",
-    "@npmcli/template-oss": "5.0.0",
-    "benchmark": "^2.1.4",
-    "tap": "^16.0.0"
-  },
-  "license": "ISC",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/npm/node-semver.git"
-  },
-  "bin": {
-    "semver": "bin/semver.js"
-  },
-  "files": [
-    "bin/",
-    "lib/",
-    "classes/",
-    "functions/",
-    "internal/",
-    "ranges/",
-    "index.js",
-    "preload.js",
-    "range.bnf"
-  ],
-  "tap": {
-    "timeout": 30,
-    "coverage-map": "map.js",
-    "nyc-arg": [
-      "--exclude",
-      "tap-snapshots/**"
-    ]
-  },
-  "engines": {
-    "node": ">=10"
-  },
-  "author": "GitHub Inc.",
-  "templateOSS": {
-    "//@npmcli/template-oss": "This file is partially managed by @npmcli/template-oss. Edits may be overwritten.",
-    "version": "5.0.0",
-    "engines": ">=10",
-    "distPaths": [
-      "classes/",
-      "functions/",
-      "internal/",
-      "ranges/",
-      "index.js",
-      "preload.js",
-      "range.bnf"
-    ],
-    "allowPaths": [
-      "/classes/",
-      "/functions/",
-      "/internal/",
-      "/ranges/",
-      "/index.js",
-      "/preload.js",
-      "/range.bnf",
-      "/benchmarks"
-    ],
-    "publish": "true"
-  }
+	"name": "supports-color",
+	"version": "10.2.2",
+	"description": "Detect whether a terminal supports color",
+	"license": "MIT",
+	"repository": "chalk/supports-color",
+	"funding": "https://github.com/chalk/supports-color?sponsor=1",
+	"author": {
+		"name": "Sindre Sorhus",
+		"email": "sindresorhus@gmail.com",
+		"url": "https://sindresorhus.com"
+	},
+	"type": "module",
+	"exports": {
+		"types": "./index.d.ts",
+		"node": "./index.js",
+		"default": "./browser.js"
+	},
+	"sideEffects": false,
+	"engines": {
+		"node": ">=18"
+	},
+	"scripts": {
+		"test": "xo && ava && tsd"
+	},
+	"files": [
+		"index.js",
+		"index.d.ts",
+		"browser.js",
+		"browser.d.ts"
+	],
+	"keywords": [
+		"color",
+		"colour",
+		"colors",
+		"terminal",
+		"console",
+		"cli",
+		"ansi",
+		"styles",
+		"tty",
+		"rgb",
+		"256",
+		"shell",
+		"xterm",
+		"command-line",
+		"support",
+		"supports",
+		"capability",
+		"detect",
+		"truecolor",
+		"16m"
+	],
+	"devDependencies": {
+		"@types/node": "^22.10.2",
+		"ava": "^6.2.0",
+		"tsd": "^0.31.2",
+		"xo": "^0.60.0"
+	},
+	"ava": {
+		"serial": true,
+		"workerThreads": false
+	}
 }

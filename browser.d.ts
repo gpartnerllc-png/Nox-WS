@@ -1,1 +1,1 @@
-export * from './esm/browser';
+export {default} from './index.js';
