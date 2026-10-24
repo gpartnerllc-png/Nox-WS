@@ -1,33 +1,15 @@
 import { createNotImplementedError } from "../../../_internal/utils.mjs";
-import { EventEmitter } from "node:events";
-// Docs: https://nodejs.org/api/net.html#net_class_net_server
-export class Server extends EventEmitter {
-	__unenv__ = true;
-	maxConnections = 1;
-	connections = 0;
-	listening = false;
+import { Server as _Server } from "node:net";
+export class Server extends _Server {
 	constructor(arg1, arg2) {
-		super();
+		super(arg1, arg2);
 	}
-	listen() {
-		throw createNotImplementedError("node:net.Server.listen()");
+	addContext(hostname, context) {}
+	setSecureContext(options) {}
+	setTicketKeys(_keys) {
+		throw createNotImplementedError("Server.setTicketKeys");
 	}
-	close(callback) {
-		throw createNotImplementedError("node:net.Server.close()");
-	}
-	address() {
-		return null;
-	}
-	getConnections(cb) {
-		cb(null, 0);
-	}
-	ref() {
-		return this;
-	}
-	unref() {
-		return this;
-	}
-	[Symbol.asyncDispose]() {
-		return Promise.resolve();
+	getTicketKeys() {
+		throw createNotImplementedError("Server.getTicketKeys");
 	}
 }
