@@ -1,46 +1,25 @@
-'use strict';
+/*!
+  Copyright 2013 Lovell Fuller and others.
+  SPDX-License-Identifier: Apache-2.0
+*/
 
-const lite = require('./lite.cjs');
+const Sharp = require('./constructor.cjs');
+const input = require('./input.cjs');
+const resize = require('./resize.cjs');
+const composite = require('./composite.cjs');
+const operation = require('./operation.cjs');
+const colour = require('./colour.cjs');
+const channel = require('./channel.cjs');
+const output = require('./output.cjs');
+const utility = require('./utility.cjs');
 
-function stackframesLiteToStackframes(liteStackframes) {
-  return liteStackframes.map((liteStackframe) => {
-    return {
-      functionName: liteStackframe.function,
-      args: liteStackframe.args,
-      fileName: liteStackframe.file,
-      lineNumber: liteStackframe.line,
-      columnNumber: liteStackframe.col,
-      source: liteStackframe.raw
-    };
-  });
-}
-function parse(error, options) {
-  return stackframesLiteToStackframes(lite.parse(error, options));
-}
-function parseV8OrIE(error) {
-  return stackframesLiteToStackframes(lite.parseV8OrIE(error));
-}
-function parseFFOrSafari(error) {
-  return stackframesLiteToStackframes(lite.parseFFOrSafari(error));
-}
-function parseOpera(e) {
-  return stackframesLiteToStackframes(lite.parseOpera(e));
-}
-function parseOpera9(e) {
-  return stackframesLiteToStackframes(lite.parseOpera9(e));
-}
-function parseOpera10(e) {
-  return stackframesLiteToStackframes(lite.parseOpera10(e));
-}
-function parseOpera11(error) {
-  return stackframesLiteToStackframes(lite.parseOpera11(error));
-}
+input(Sharp);
+resize(Sharp);
+composite(Sharp);
+operation(Sharp);
+colour(Sharp);
+channel(Sharp);
+output(Sharp);
+utility(Sharp);
 
-exports.extractLocation = lite.extractLocation;
-exports.parse = parse;
-exports.parseFFOrSafari = parseFFOrSafari;
-exports.parseOpera = parseOpera;
-exports.parseOpera10 = parseOpera10;
-exports.parseOpera11 = parseOpera11;
-exports.parseOpera9 = parseOpera9;
-exports.parseV8OrIE = parseV8OrIE;
+module.exports = Sharp;
