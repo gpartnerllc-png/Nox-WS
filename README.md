@@ -1,680 +1,741 @@
-semver(1) -- The semantic versioner for npm
-===========================================
+# undici
+
+[![Node CI](https://github.com/nodejs/undici/actions/workflows/ci.yml/badge.svg)](https://github.com/nodejs/undici/actions/workflows/nodejs.yml) [![neostandard javascript style](https://img.shields.io/badge/neo-standard-7fffff?style=flat\&labelColor=ff80ff)](https://github.com/neostandard/neostandard) [![npm version](https://badge.fury.io/js/undici.svg)](https://badge.fury.io/js/undici) [![codecov](https://codecov.io/gh/nodejs/undici/branch/main/graph/badge.svg?token=yZL6LtXkOA)](https://codecov.io/gh/nodejs/undici)
+
+An HTTP/1.1 client, written from scratch for Node.js.
+
+> Undici means eleven in Italian. 1.1 -> 11 -> Eleven -> Undici.
+It is also a Stranger Things reference.
+
+## How to get involved
+
+Have a question about using Undici? Open a [Q&A Discussion](https://github.com/nodejs/undici/discussions/new) or join our official OpenJS [Slack](https://openjs-foundation.slack.com/archives/C01QF9Q31QD) channel.
+
+Looking to contribute? Start by reading the [contributing guide](./CONTRIBUTING.md)
 
 ## Install
 
-```bash
-npm install semver
-````
+```
+npm i undici
+```
 
-## Usage
+## Benchmarks
 
-As a node module:
+The benchmark is a simple getting data [example](https://github.com/nodejs/undici/blob/main/benchmarks/benchmark.js) using a
+50 TCP connections with a pipelining depth of 10 running on Node 22.11.0.
+
+```
+┌────────────────────────┬─────────┬────────────────────┬────────────┬─────────────────────────┐
+│  Tests                 │ Samples │ Result             │ Tolerance  │ Difference with slowest │
+├────────────────────────┼─────────┼────────────────────┼────────────┼─────────────────────────┤
+│  'axios'               │ 15      │ '5708.26 req/sec'  │ '± 2.91 %' │ '-'                     │
+│  'http - no keepalive' │ 10      │ '5809.80 req/sec'  │ '± 2.30 %' │ '+ 1.78 %'              │
+│  'request'             │ 30      │ '5828.80 req/sec'  │ '± 2.91 %' │ '+ 2.11 %'              │
+│  'undici - fetch'      │ 40      │ '5903.78 req/sec'  │ '± 2.87 %' │ '+ 3.43 %'              │
+│  'node-fetch'          │ 10      │ '5945.40 req/sec'  │ '± 2.13 %' │ '+ 4.15 %'              │
+│  'got'                 │ 35      │ '6511.45 req/sec'  │ '± 2.84 %' │ '+ 14.07 %'             │
+│  'http - keepalive'    │ 65      │ '9193.24 req/sec'  │ '± 2.92 %' │ '+ 61.05 %'             │
+│  'superagent'          │ 35      │ '9339.43 req/sec'  │ '± 2.95 %' │ '+ 63.61 %'             │
+│  'undici - pipeline'   │ 50      │ '13364.62 req/sec' │ '± 2.93 %' │ '+ 134.13 %'            │
+│  'undici - stream'     │ 95      │ '18245.36 req/sec' │ '± 2.99 %' │ '+ 219.63 %'            │
+│  'undici - request'    │ 50      │ '18340.17 req/sec' │ '± 2.84 %' │ '+ 221.29 %'            │
+│  'undici - dispatch'   │ 40      │ '22234.42 req/sec' │ '± 2.94 %' │ '+ 289.51 %'            │
+└────────────────────────┴─────────┴────────────────────┴────────────┴─────────────────────────┘
+```
+
+## Undici vs. Fetch
+
+### Overview
+
+Node.js includes a built-in `fetch()` implementation powered by undici starting from Node.js v18. However, there are important differences between using the built-in fetch and installing undici as a separate module.
+
+### Built-in Fetch (Node.js v18+)
+
+Node.js's built-in fetch is powered by a bundled version of undici:
 
 ```js
-const semver = require('semver')
+// Available globally in Node.js v18+
+const response = await fetch('https://api.example.com/data');
+const data = await response.json();
 
-semver.valid('1.2.3') // '1.2.3'
-semver.valid('a.b.c') // null
-semver.clean('  =v1.2.3   ') // '1.2.3'
-semver.satisfies('1.2.3', '1.x || >=2.5.0 || 5.0.0 - 7.2.3') // true
-semver.gt('1.2.3', '9.8.7') // false
-semver.lt('1.2.3', '9.8.7') // true
-semver.minVersion('>=1.0.0') // '1.0.0'
-semver.valid(semver.coerce('v2')) // '2.0.0'
-semver.valid(semver.coerce('42.6.7.9.3-alpha')) // '42.6.7'
+// Check the bundled undici version
+console.log(process.versions.undici); // e.g., "5.28.4"
 ```
 
-You can also just load the module for the function that you care about if
-you'd like to minimize your footprint.
+**Pros:**
+- No additional dependencies required
+- Works across different JavaScript runtimes
+- Automatic compression handling (gzip, deflate, br)
+- Built-in caching support (in development)
+
+**Cons:**
+- Limited to the undici version bundled with your Node.js version
+- Less control over connection pooling and advanced features
+- Error handling follows Web API standards (errors wrapped in `TypeError`)
+- Performance overhead due to Web Streams implementation
+
+### Undici Module
+
+Installing undici as a separate module gives you access to the latest features and APIs:
+
+```bash
+npm install undici
+```
 
 ```js
-// load the whole API at once in a single object
-const semver = require('semver')
+import { request, fetch, Agent, setGlobalDispatcher } from 'undici';
 
-// or just load the bits you need
-// all of them listed here, just pick and choose what you want
+// Use undici.request for maximum performance
+const { statusCode, headers, body } = await request('https://api.example.com/data');
+const data = await body.json();
 
-// classes
-const SemVer = require('semver/classes/semver')
-const Comparator = require('semver/classes/comparator')
-const Range = require('semver/classes/range')
-
-// functions for working with versions
-const semverParse = require('semver/functions/parse')
-const semverValid = require('semver/functions/valid')
-const semverClean = require('semver/functions/clean')
-const semverInc = require('semver/functions/inc')
-const semverDiff = require('semver/functions/diff')
-const semverMajor = require('semver/functions/major')
-const semverMinor = require('semver/functions/minor')
-const semverPatch = require('semver/functions/patch')
-const semverPrerelease = require('semver/functions/prerelease')
-const semverCompare = require('semver/functions/compare')
-const semverRcompare = require('semver/functions/rcompare')
-const semverCompareLoose = require('semver/functions/compare-loose')
-const semverCompareBuild = require('semver/functions/compare-build')
-const semverSort = require('semver/functions/sort')
-const semverRsort = require('semver/functions/rsort')
-const semverTruncate = require('semver/functions/truncate')
-
-// low-level comparators between versions
-const semverGt = require('semver/functions/gt')
-const semverLt = require('semver/functions/lt')
-const semverEq = require('semver/functions/eq')
-const semverNeq = require('semver/functions/neq')
-const semverGte = require('semver/functions/gte')
-const semverLte = require('semver/functions/lte')
-const semverCmp = require('semver/functions/cmp')
-const semverCoerce = require('semver/functions/coerce')
-
-// working with ranges
-const semverSatisfies = require('semver/functions/satisfies')
-const semverMaxSatisfying = require('semver/ranges/max-satisfying')
-const semverMinSatisfying = require('semver/ranges/min-satisfying')
-const semverToComparators = require('semver/ranges/to-comparators')
-const semverMinVersion = require('semver/ranges/min-version')
-const semverValidRange = require('semver/ranges/valid')
-const semverOutside = require('semver/ranges/outside')
-const semverGtr = require('semver/ranges/gtr')
-const semverLtr = require('semver/ranges/ltr')
-const semverIntersects = require('semver/ranges/intersects')
-const semverSimplifyRange = require('semver/ranges/simplify')
-const semverRangeSubset = require('semver/ranges/subset')
+// Or use undici.fetch with custom configuration
+const agent = new Agent({ keepAliveTimeout: 10000 });
+setGlobalDispatcher(agent);
+const response = await fetch('https://api.example.com/data');
 ```
 
-As a command-line utility:
+**Pros:**
+- Latest undici features and bug fixes
+- Access to advanced APIs (`request`, `stream`, `pipeline`)
+- Fine-grained control over connection pooling
+- Better error handling with clearer error messages
+- Superior performance, especially with `undici.request`
+- HTTP/1.1 pipelining support
+- Custom interceptors and middleware
+- Advanced features like `ProxyAgent`, `Socks5Agent`, `MockAgent`
 
-```
-$ semver -h
+**Cons:**
+- Additional dependency to manage
+- Larger bundle size
 
-A JavaScript implementation of the https://semver.org/ specification
-Copyright Isaac Z. Schlueter
+### When to Use Each
 
-Usage: semver [options] <version> [<version> [...]]
-Prints valid versions sorted by SemVer precedence
+#### Use Built-in Fetch When:
+- You want zero dependencies
+- Building isomorphic code that runs in browsers and Node.js
+- Publishing to npm and want to maximize compatibility with JS runtimes
+- Simple HTTP requests without advanced configuration
+- You're publishing to npm and you want to maximize compatiblity
+- You don't depend on features from a specific version of undici
 
-Options:
--r --range <range>
-        Print versions that match the specified range.
+#### Use Undici Module When:
+- You need the latest undici features and performance improvements
+- You require advanced connection pooling configuration
+- You need APIs not available in the built-in fetch (`ProxyAgent`, `Socks5Agent`, `MockAgent`, etc.)
+- Performance is critical (use `undici.request` for maximum speed)
+- You want better error handling and debugging capabilities
+- You need HTTP/1.1 pipelining or advanced interceptors
+- You prefer decoupled protocol and API interfaces
 
--i --increment [<level>]
-        Increment a version by the specified level.  Level can
-        be one of: major, minor, patch, premajor, preminor,
-        prepatch, prerelease, or release.  Default level is 'patch'.
-        Only one version may be specified.
+### Performance Comparison
 
---preid <identifier>
-        Identifier to be used to prefix premajor, preminor,
-        prepatch or prerelease version increments.
+Based on benchmarks, here's the typical performance hierarchy:
 
--l --loose
-        Interpret versions and ranges loosely
+1. **`undici.request()`** - Fastest, most efficient
+2. **`undici.fetch()`** - Good performance, standard compliance
+3. **Node.js `http`/`https`** - Baseline performance
 
--n <0|1|false>
-        Base number for prerelease identifier (default: 0).
-        Use false to omit the number altogether.
+### Migration Guide
 
--p --include-prerelease
-        Always include prerelease versions in range matching
+If you're currently using built-in fetch and want to migrate to undici:
 
--c --coerce
-        Coerce a string into SemVer if possible
-        (does not imply --loose)
+```js
+// Before: Built-in fetch
+const response = await fetch('https://api.example.com/data');
 
---rtl
-        Coerce version strings right to left
+// After: Undici fetch (drop-in replacement)
+import { fetch } from 'undici';
+const response = await fetch('https://api.example.com/data');
 
---ltr
-        Coerce version strings left to right (default)
-
-Program exits successfully if any valid version satisfies
-all supplied ranges, and prints all satisfying versions.
-
-If no satisfying versions are found, then exits failure.
-
-Versions are printed in ascending order, so supplying
-multiple versions to the utility will just sort them.
-```
-
-## Versions
-
-A "version" is described by the `v2.0.0` specification found at
-<https://semver.org/>.
-
-A leading `"="` or `"v"` character is stripped off and ignored.
-Support for stripping a leading "v" is kept for compatibility with `v1.0.0` of the SemVer
-specification but should not be used anymore.
-
-## Ranges
-
-A `version range` is a set of `comparators` that specify versions
-that satisfy the range.
-
-A `comparator` is composed of an `operator` and a `version`.  The set
-of primitive `operators` is:
-
-* `<` Less than
-* `<=` Less than or equal to
-* `>` Greater than
-* `>=` Greater than or equal to
-* `=` Equal.  If no operator is specified, then equality is assumed,
-  so this operator is optional but MAY be included.
-
-For example, the comparator `>=1.2.7` would match the versions
-`1.2.7`, `1.2.8`, `2.5.3`, and `1.3.9`, but not the versions `1.2.6`
-or `1.1.0`. The comparator `>1` is equivalent to `>=2.0.0` and
-would match the versions `2.0.0` and `3.1.0`, but not the versions
-`1.0.1` or `1.1.0`.
-
-Comparators can be joined by whitespace to form a `comparator set`,
-which is satisfied by the **intersection** of all of the comparators
-it includes.
-
-A range is composed of one or more comparator sets, joined by `||`.  A
-version matches a range if and only if every comparator in at least
-one of the `||`-separated comparator sets is satisfied by the version.
-
-For example, the range `>=1.2.7 <1.3.0` would match the versions
-`1.2.7`, `1.2.8`, and `1.2.99`, but not the versions `1.2.6`, `1.3.0`,
-or `1.1.0`.
-
-The range `1.2.7 || >=1.2.9 <2.0.0` would match the versions `1.2.7`,
-`1.2.9`, and `1.4.6`, but not the versions `1.2.8` or `2.0.0`.
-
-### Prerelease Tags
-
-If a version has a prerelease tag (for example, `1.2.3-alpha.3`) then
-it will only be allowed to satisfy comparator sets if at least one
-comparator with the same `[major, minor, patch]` tuple also has a
-prerelease tag.
-
-For example, the range `>1.2.3-alpha.3` would be allowed to match the
-version `1.2.3-alpha.7`, but it would *not* be satisfied by
-`3.4.5-alpha.9`, even though `3.4.5-alpha.9` is technically "greater
-than" `1.2.3-alpha.3` according to the SemVer sort rules.  The version
-range only accepts prerelease tags on the `1.2.3` version.
-Version `3.4.5` *would* satisfy the range because it does not have a
-prerelease flag, and `3.4.5` is greater than `1.2.3-alpha.7`.
-
-The purpose of this behavior is twofold.  First, prerelease versions
-frequently are updated very quickly, and contain many breaking changes
-that are (by the author's design) not yet fit for public consumption.
-Therefore, by default, they are excluded from range-matching
-semantics.
-
-Second, a user who has opted into using a prerelease version has
-indicated the intent to use *that specific* set of
-alpha/beta/rc versions.  By including a prerelease tag in the range,
-the user is indicating that they are aware of the risk.  However, it
-is still not appropriate to assume that they have opted into taking a
-similar risk on the *next* set of prerelease versions.
-
-Note that this behavior can be suppressed (treating all prerelease
-versions as if they were normal versions, for range-matching)
-by setting the `includePrerelease` flag on the options
-object to any
-[functions](https://github.com/npm/node-semver#functions) that do
-range matching.
-
-#### Prerelease Identifiers
-
-The method `.inc` takes an additional `identifier` string argument that
-will append the value of the string as a prerelease identifier:
-
-```javascript
-semver.inc('1.2.3', 'prerelease', 'beta')
-// '1.2.4-beta.0'
+// Or: Undici request (better performance)
+import { request } from 'undici';
+const { statusCode, body } = await request('https://api.example.com/data');
+const data = await body.json();
 ```
 
-command-line example:
+### Keep `fetch` and `FormData` together
 
-```bash
-$ semver 1.2.3 -i prerelease --preid beta
-1.2.4-beta.0
+When you send a `FormData` body, keep `fetch` and `FormData` from the same
+implementation.
+
+Use one of these patterns:
+
+```js
+// Built-in globals
+const body = new FormData()
+body.set('name', 'some')
+await fetch('https://example.com', {
+  method: 'POST',
+  body
+})
 ```
 
-Which then can be used to increment further:
+```js
+// undici module imports
+import { fetch, FormData } from 'undici'
 
-```bash
-$ semver 1.2.4-beta.0 -i prerelease
-1.2.4-beta.1
+const body = new FormData()
+body.set('name', 'some')
+await fetch('https://example.com', {
+  method: 'POST',
+  body
+})
 ```
 
-To get out of the prerelease phase, use the `release` option:
+If you want the installed `undici` package to provide the globals, call
+`install()` first:
 
-```bash
-$ semver 1.2.4-beta.1 -i release
-1.2.4
+```js
+import { install } from 'undici'
+
+install()
+
+const body = new FormData()
+body.set('name', 'some')
+await fetch('https://example.com', {
+  method: 'POST',
+  body
+})
 ```
 
-#### Prerelease Identifier Base
+`install()` replaces the global `fetch`, `Headers`, `Response`, `Request`, and
+`FormData` implementations with undici's versions, so they all match.
 
-The method `.inc` takes an optional parameter 'identifierBase' string
-that will let you let your prerelease number as zero-based or one-based.
-Set to `false` to omit the prerelease number altogether.
-If you do not specify this parameter, it will default to zero-based.
+Avoid mixing a global `FormData` with `undici.fetch()`, or `undici.FormData`
+with the built-in global `fetch()`.
 
-```javascript
-semver.inc('1.2.3', 'prerelease', 'beta', '1')
-// '1.2.4-beta.1'
+### Version Compatibility
+
+You can check which version of undici is bundled with your Node.js version:
+
+```js
+console.log(process.versions.undici);
 ```
 
-```javascript
-semver.inc('1.2.3', 'prerelease', 'beta', false)
-// '1.2.4-beta'
+Installing undici as a module allows you to use a newer version than what's bundled with Node.js, giving you access to the latest features and performance improvements.
+
+## Quick Start
+
+### Basic Request
+
+```js
+import { request } from 'undici'
+
+const {
+  statusCode,
+  headers,
+  trailers,
+  body
+} = await request('http://localhost:3000/foo')
+
+console.log('response received', statusCode)
+console.log('headers', headers)
+
+for await (const data of body) { console.log('data', data) }
+
+console.log('trailers', trailers)
 ```
 
-command-line example:
+### Using Cache Interceptor
 
-```bash
-$ semver 1.2.3 -i prerelease --preid beta -n 1
-1.2.4-beta.1
-```
+Undici provides a powerful HTTP caching interceptor that follows HTTP caching best practices. Here's how to use it:
 
-```bash
-$ semver 1.2.3 -i prerelease --preid beta -n false
-1.2.4-beta
-```
+```js
+import { fetch, Agent, interceptors, cacheStores } from 'undici';
 
-### Advanced Range Syntax
+// Create a client with cache interceptor
+const client = new Agent().compose(interceptors.cache({
+  // Optional: Configure cache store (defaults to MemoryCacheStore)
+  store: new cacheStores.MemoryCacheStore({
+    maxSize: 100 * 1024 * 1024, // 100MB
+    maxCount: 1000,
+    maxEntrySize: 5 * 1024 * 1024 // 5MB
+  }),
+  
+  // Optional: Specify which HTTP methods to cache (default: ['GET', 'HEAD'])
+  methods: ['GET', 'HEAD']
+}));
 
-Advanced range syntax desugars to primitive comparators in
-deterministic ways.
+// Set the global dispatcher to use our caching client
+setGlobalDispatcher(client);
 
-Advanced ranges may be combined in the same way as primitive
-comparators using white space or `||`.
-
-#### Hyphen Ranges `X.Y.Z - A.B.C`
-
-Specifies an inclusive set.
-
-* `1.2.3 - 2.3.4` := `>=1.2.3 <=2.3.4`
-
-If a partial version is provided as the first version in the inclusive
-range, then the missing pieces are replaced with zeroes.
-
-* `1.2 - 2.3.4` := `>=1.2.0 <=2.3.4`
-
-If a partial version is provided as the second version in the
-inclusive range, then all versions that start with the supplied parts
-of the tuple are accepted, but nothing that would be greater than the
-provided tuple parts.
-
-* `1.2.3 - 2.3` := `>=1.2.3 <2.4.0-0`
-* `1.2.3 - 2` := `>=1.2.3 <3.0.0-0`
-
-#### X-Ranges `1.2.x` `1.X` `1.2.*` `*`
-
-Any of `X`, `x`, or `*` may be used to "stand in" for one of the
-numeric values in the `[major, minor, patch]` tuple.
-
-* `*` := `>=0.0.0` (Any non-prerelease version satisfies, unless
-  `includePrerelease` is specified, in which case any version at all
-  satisfies)
-* `1.x` := `>=1.0.0 <2.0.0-0` (Matching major version)
-* `1.2.x` := `>=1.2.0 <1.3.0-0` (Matching major and minor versions)
-
-A partial version range is treated as an X-Range, so the special
-character is in fact optional.
-
-* `""` (empty string) := `*` := `>=0.0.0`
-* `1` := `1.x.x` := `>=1.0.0 <2.0.0-0`
-* `1.2` := `1.2.x` := `>=1.2.0 <1.3.0-0`
-
-#### Tilde Ranges `~1.2.3` `~1.2` `~1`
-
-Allows patch-level changes if a minor version is specified on the
-comparator.  Allows minor-level changes if not.
-
-* `~1.2.3` := `>=1.2.3 <1.(2+1).0` := `>=1.2.3 <1.3.0-0`
-* `~1.2` := `>=1.2.0 <1.(2+1).0` := `>=1.2.0 <1.3.0-0` (Same as `1.2.x`)
-* `~1` := `>=1.0.0 <(1+1).0.0` := `>=1.0.0 <2.0.0-0` (Same as `1.x`)
-* `~0.2.3` := `>=0.2.3 <0.(2+1).0` := `>=0.2.3 <0.3.0-0`
-* `~0.2` := `>=0.2.0 <0.(2+1).0` := `>=0.2.0 <0.3.0-0` (Same as `0.2.x`)
-* `~0` := `>=0.0.0 <(0+1).0.0` := `>=0.0.0 <1.0.0-0` (Same as `0.x`)
-* `~1.2.3-beta.2` := `>=1.2.3-beta.2 <1.3.0-0` Note that prereleases in
-  the `1.2.3` version will be allowed, if they are greater than or
-  equal to `beta.2`.  So, `1.2.3-beta.4` would be allowed, but
-  `1.2.4-beta.2` would not, because it is a prerelease of a
-  different `[major, minor, patch]` tuple.
-
-#### Caret Ranges `^1.2.3` `^0.2.5` `^0.0.4`
-
-Allows changes that do not modify the left-most non-zero element in the
-`[major, minor, patch]` tuple.  In other words, this allows patch and
-minor updates for versions `1.0.0` and above, patch updates for
-versions `0.X >=0.1.0`, and *no* updates for versions `0.0.X`.
-
-Many authors treat a `0.x` version as if the `x` were the major
-"breaking-change" indicator.
-
-Caret ranges are ideal when an author may make breaking changes
-between `0.2.4` and `0.3.0` releases, which is a common practice.
-However, it presumes that there will *not* be breaking changes between
-`0.2.4` and `0.2.5`.  It allows for changes that are presumed to be
-additive (but non-breaking), according to commonly observed practices.
-
-* `^1.2.3` := `>=1.2.3 <2.0.0-0`
-* `^0.2.3` := `>=0.2.3 <0.3.0-0`
-* `^0.0.3` := `>=0.0.3 <0.0.4-0`
-* `^1.2.3-beta.2` := `>=1.2.3-beta.2 <2.0.0-0` Note that prereleases in
-  the `1.2.3` version will be allowed, if they are greater than or
-  equal to `beta.2`.  So, `1.2.3-beta.4` would be allowed, but
-  `1.2.4-beta.2` would not, because it is a prerelease of a
-  different `[major, minor, patch]` tuple.
-* `^0.0.3-beta` := `>=0.0.3-beta <0.0.4-0`  Note that prereleases in the
-  `0.0.3` version *only* will be allowed, if they are greater than or
-  equal to `beta`.  So, `0.0.3-pr.2` would be allowed.
-
-When parsing caret ranges, a missing `patch` value desugars to the
-number `0`, but will allow flexibility within that value, even if the
-major and minor versions are both `0`.
-
-* `^1.2.x` := `>=1.2.0 <2.0.0-0`
-* `^0.0.x` := `>=0.0.0 <0.1.0-0`
-* `^0.0` := `>=0.0.0 <0.1.0-0`
-
-A missing `minor` and `patch` values will desugar to zero, but also
-allow flexibility within those values, even if the major version is
-zero.
-
-* `^1.x` := `>=1.0.0 <2.0.0-0`
-* `^0.x` := `>=0.0.0 <1.0.0-0`
-
-### Range Grammar
-
-Putting all this together, here is a Backus-Naur grammar for ranges,
-for the benefit of parser authors:
-
-```bnf
-range-set  ::= range ( logical-or range ) *
-logical-or ::= ( ' ' ) * '||' ( ' ' ) *
-range      ::= hyphen | simple ( ' ' simple ) * | ''
-hyphen     ::= partial ' - ' partial
-simple     ::= primitive | partial | tilde | caret
-primitive  ::= ( '<' | '>' | '>=' | '<=' | '=' ) partial
-partial    ::= xr ( '.' xr ( '.' xr qualifier ? )? )?
-xr         ::= 'x' | 'X' | '*' | nr
-nr         ::= '0' | ['1'-'9'] ( ['0'-'9'] ) *
-tilde      ::= '~' partial
-caret      ::= '^' partial
-qualifier  ::= ( '-' pre )? ( '+' build )?
-pre        ::= prepart ( '.' prepart ) *
-prepart    ::= nr | alphanumid
-build      ::= buildid ( '.' buildid ) *
-alphanumid ::= ( ['0'-'9'] ) * [-A-Za-z] [-0-9A-Za-z] *
-buildid    ::= [-0-9A-Za-z]+
-```
-
-Note: Prerelease identifiers (`pre`) use `nr` for numeric parts, which
-disallows leading zeros (e.g., `1.2.3-00` is invalid). Build metadata
-identifiers (`build`) allow any alphanumeric string including leading
-zeros (e.g., `1.2.3+00` is valid). This matches the
-[SemVer 2.0.0 specification](https://semver.org/#spec-item-9).
-
-## Functions
-
-All methods and classes take a final `options` object argument.  All
-options in this object are `false` by default.  The options supported
-are:
-
-- `loose`: Be more forgiving about not-quite-valid semver strings.
-  (Any resulting output will always be 100% strict compliant, of
-  course.)  For backwards compatibility reasons, if the `options`
-  argument is a boolean value instead of an object, it is interpreted
-  to be the `loose` param.
-- `includePrerelease`: Set to suppress the [default
-  behavior](https://github.com/npm/node-semver#prerelease-tags) of
-  excluding prerelease tagged versions from ranges unless they are
-  explicitly opted into.
-
-Strict-mode Comparators and Ranges will be strict about the SemVer
-strings that they parse.
-
-* `valid(v)`: Return the parsed version, or null if it's not valid.
-* `inc(v, releaseType, options, identifier, identifierBase)`: 
-  Return the version incremented by the release
-  type (`major`, `premajor`, `minor`, `preminor`, `patch`,
-  `prepatch`, `prerelease`, or `release`), or null if it's not valid
-  * `premajor` in one call will bump the version up to the next major
-    version and down to a prerelease of that major version.
-    `preminor`, and `prepatch` work the same way.
-  * If called from a non-prerelease version, `prerelease` will work the
-    same as `prepatch`. It increments the patch version and then makes a
-    prerelease. If the input version is already a prerelease it simply
-    increments it.
-  * `release` will remove any prerelease part of the version.
-  * `identifier` can be used to prefix `premajor`, `preminor`,
-    `prepatch`, or `prerelease` version increments. `identifierBase`
-    is the base to be used for the `prerelease` identifier.
-* `prerelease(v)`: Returns an array of prerelease components, or null
-  if none exist. Example: `prerelease('1.2.3-alpha.1') -> ['alpha', 1]`
-* `major(v)`: Return the major version number.
-* `minor(v)`: Return the minor version number.
-* `patch(v)`: Return the patch version number.
-* `intersects(r1, r2, loose)`: Return true if the two supplied ranges
-  or comparators intersect.
-* `parse(v)`: Attempt to parse a string as a semantic version, returning either
-  a `SemVer` object or `null`.
-* `truncate(v, releaseType)`: Return the version with components _lower_
-  than `releaseType` dropped off, e.g.:
-  * `major` removes build & prerelease info and sets minor & patch to 0.
-  * `minor` removes build & prerelease info, and sets patch to 0
-  * `patch` removes build & prerelease info
-  * All prerelease types remove build info only
-
-### Comparison
-
-* `gt(v1, v2)`: `v1 > v2`
-* `gte(v1, v2)`: `v1 >= v2`
-* `lt(v1, v2)`: `v1 < v2`
-* `lte(v1, v2)`: `v1 <= v2`
-* `eq(v1, v2)`: `v1 == v2` This is true if they're logically equivalent,
-  even if they're not the same string.  You already know how to
-  compare strings.
-* `neq(v1, v2)`: `v1 != v2` The opposite of `eq`.
-* `cmp(v1, comparator, v2)`: Pass in a comparison string, and it'll call
-  the corresponding function above.  `"==="` and `"!=="` do simple
-  string comparison, but are included for completeness.  Throws if an
-  invalid comparison string is provided.
-* `compare(v1, v2)`: Return `0` if `v1 == v2`, or `1` if `v1` is greater, or `-1` if
-  `v2` is greater.  Sorts in ascending order if passed to `Array.sort()`.
-* `rcompare(v1, v2)`: The reverse of `compare`.  Sorts an array of versions
-  in descending order when passed to `Array.sort()`.
-* `compareBuild(v1, v2)`: The same as `compare` but considers `build` when two versions
-  are equal.  Sorts in ascending order if passed to `Array.sort()`.
-* `compareLoose(v1, v2)`: Short for `compare(v1, v2, { loose: true })`.
-* `diff(v1, v2)`: Returns the difference between two versions by the release type
-  (`major`, `premajor`, `minor`, `preminor`, `patch`, `prepatch`, or `prerelease`),
-  or null if the versions are the same.
-
-### Sorting
-
-* `sort(versions)`: Returns a sorted array of versions based on the `compareBuild` 
-  function.
-* `rsort(versions)`: The reverse of `sort`. Returns an array of versions based on
-  the `compareBuild` function in descending order.
-
-### Comparators
-
-* `intersects(comparator)`: Return true if the comparators intersect
-
-### Ranges
-
-* `validRange(range)`: Return the valid range or null if it's not valid.
-* `satisfies(version, range)`: Return true if the version satisfies the
-  range.
-* `maxSatisfying(versions, range)`: Return the highest version in the list
-  that satisfies the range, or `null` if none of them do.
-* `minSatisfying(versions, range)`: Return the lowest version in the list
-  that satisfies the range, or `null` if none of them do.
-* `minVersion(range)`: Return the lowest version that can match
-  the given range.
-* `gtr(version, range)`: Return `true` if the version is greater than all the
-  versions possible in the range.
-* `ltr(version, range)`: Return `true` if the version is less than all the
-  versions possible in the range.
-* `outside(version, range, hilo)`: Return true if the version is outside
-  the bounds of the range in either the high or low direction.  The
-  `hilo` argument must be either the string `'>'` or `'<'`.  (This is
-  the function called by `gtr` and `ltr`.)
-* `intersects(range)`: Return true if any of the range comparators intersect.
-* `simplifyRange(versions, range)`: Return a "simplified" range that
-  matches the same items in the `versions` list as the range specified.  Note
-  that it does *not* guarantee that it would match the same versions in all
-  cases, only for the set of versions provided.  This is useful when
-  generating ranges by joining together multiple versions with `||`
-  programmatically, to provide the user with something a bit more
-  ergonomic.  If the provided range is shorter in string-length than the
-  generated range, then that is returned.
-* `subset(subRange, superRange)`: Return `true` if the `subRange` range is
-  entirely contained by the `superRange` range.
-
-Note that, since ranges may be non-contiguous, a version might not be
-greater than a range, less than a range, *or* satisfy a range!  For
-example, the range `1.2 <1.2.9 || >2.0.0` would have a hole from `1.2.9`
-until `2.0.0`, so version `1.2.10` would not be greater than the
-range (because `2.0.1` satisfies, which is higher), nor less than the
-range (since `1.2.8` satisfies, which is lower), and it also does not
-satisfy the range.
-
-If you want to know if a version satisfies or does not satisfy a
-range, use the `satisfies(version, range)` function.
-
-### Coercion
-
-* `coerce(version, options)`: Coerces a string to semver if possible
-
-This aims to provide a very forgiving translation of a non-semver string to
-semver. It looks for the first digit in a string and consumes all
-remaining characters which satisfy at least a partial semver (e.g., `1`,
-`1.2`, `1.2.3`) up to the max permitted length (256 characters).  Longer
-versions are simply truncated (`4.6.3.9.2-alpha2` becomes `4.6.3`).  All
-surrounding text is simply ignored (`v3.4 replaces v3.3.1` becomes
-`3.4.0`).  Only text which lacks digits will fail coercion (`version one`
-is not valid).  The maximum length for any semver component considered for
-coercion is 16 characters; longer components will be ignored
-(`10000000000000000.4.7.4` becomes `4.7.4`).  The maximum value for any
-semver component is `Number.MAX_SAFE_INTEGER || (2**53 - 1)`; higher value
-components are invalid (`9999999999999999.4.7.4` is likely invalid).
-
-If the `options.rtl` flag is set, then `coerce` will return the right-most
-coercible tuple that does not share an ending index with a longer coercible
-tuple.  For example, `1.2.3.4` will return `2.3.4` in rtl mode, not
-`4.0.0`.  `1.2.3/4` will return `4.0.0`, because the `4` is not a part of
-any other overlapping SemVer tuple.
-
-If the `options.includePrerelease` flag is set, then the `coerce` result will contain
-prerelease and build parts of a version.  For example, `1.2.3.4-rc.1+rev.2`
-will preserve prerelease `rc.1` and build `rev.2` in the result.
-
-### Clean
-
-* `clean(version)`: Clean a string to be a valid semver if possible
-
-This will return a cleaned and trimmed semver version. If the provided
-version is not valid a null will be returned. This does not work for
-ranges.
-
-ex.
-* `s.clean(' = v 2.1.5foo')`: `null`
-* `s.clean(' = v 2.1.5foo', { loose: true })`: `'2.1.5-foo'`
-* `s.clean(' = v 2.1.5-foo')`: `null`
-* `s.clean(' = v 2.1.5-foo', { loose: true })`: `'2.1.5-foo'`
-* `s.clean('=v2.1.5')`: `'2.1.5'`
-* `s.clean('  =v2.1.5')`: `'2.1.5'`
-* `s.clean('      2.1.5   ')`: `'2.1.5'`
-* `s.clean('~1.0.0')`: `null`
-
-## Constants
-
-As a convenience, helper constants are exported to provide information about what `node-semver` supports:
-
-### `RELEASE_TYPES`
-
-- major
-- premajor
-- minor
-- preminor
-- patch
-- prepatch
-- prerelease
-
-```
-const semver = require('semver');
-
-if (semver.RELEASE_TYPES.includes(arbitraryUserInput)) {
-  console.log('This is a valid release type!');
-} else {
-  console.warn('This is NOT a valid release type!');
+// Now all fetch requests will use the cache
+async function getData() {
+  const response = await fetch('https://api.example.com/data');
+  // The server should set appropriate Cache-Control headers in the response
+  // which the cache will respect based on the cache policy
+  return response.json();
 }
+
+// First request - fetches from origin
+const data1 = await getData();
+
+// Second request - served from cache if within max-age
+const data2 = await getData();
 ```
 
-### `SEMVER_SPEC_VERSION`
+#### Key Features:
+- **Automatic Caching**: Respects `Cache-Control` and `Expires` headers
+- **Validation**: Supports `ETag` and `Last-Modified` validation
+- **Storage Options**: In-memory or persistent SQLite storage
+- **Flexible**: Configure cache size, TTL, and more
 
-2.0.0
+## Global Installation
 
+Undici provides an `install()` function to add all WHATWG fetch classes to `globalThis`, making them available globally:
+
+```js
+import { install } from 'undici'
+
+// Install all WHATWG fetch classes globally
+install()
+
+// Now you can use fetch classes globally without importing
+const response = await fetch('https://api.example.com/data')
+const data = await response.json()
+
+// All classes are available globally:
+const headers = new Headers([['content-type', 'application/json']])
+const request = new Request('https://example.com')
+const formData = new FormData()
+const ws = new WebSocket('wss://example.com')
+const eventSource = new EventSource('https://example.com/events')
 ```
-const semver = require('semver');
 
-console.log('We are currently using the semver specification version:', semver.SEMVER_SPEC_VERSION);
+The `install()` function adds the following classes to `globalThis`:
+
+- `fetch` - The fetch function
+- `Headers` - HTTP headers management
+- `Response` - HTTP response representation
+- `Request` - HTTP request representation
+- `FormData` - Form data handling
+- `WebSocket` - WebSocket client
+- `CloseEvent`, `ErrorEvent`, `MessageEvent` - WebSocket events
+- `EventSource` - Server-sent events client
+
+When you call `install()`, these globals come from the same undici
+implementation. For example, global `fetch` and global `FormData` will both be
+undici's versions, which is the recommended setup if you want to use undici
+through globals.
+
+This is useful for:
+- Polyfilling environments that don't have fetch
+- Ensuring consistent fetch behavior across different Node.js versions
+- Making undici's implementations available globally for libraries that expect them
+
+## Body Mixins
+
+The `body` mixins are the most common way to format the request/response body. Mixins include:
+
+- [`.arrayBuffer()`](https://fetch.spec.whatwg.org/#dom-body-arraybuffer)
+- [`.blob()`](https://fetch.spec.whatwg.org/#dom-body-blob)
+- [`.bytes()`](https://fetch.spec.whatwg.org/#dom-body-bytes)
+- [`.json()`](https://fetch.spec.whatwg.org/#dom-body-json)
+- [`.text()`](https://fetch.spec.whatwg.org/#dom-body-text)
+
+> [!NOTE]
+> The body returned from `undici.request` does not implement `.formData()`.
+
+Example usage:
+
+```js
+import { request } from 'undici'
+
+const {
+  statusCode,
+  headers,
+  trailers,
+  body
+} = await request('http://localhost:3000/foo')
+
+console.log('response received', statusCode)
+console.log('headers', headers)
+console.log('data', await body.json())
+console.log('trailers', trailers)
 ```
 
-## Exported Modules
+_Note: Once a mixin has been called then the body cannot be reused, thus calling additional mixins on `.body`, e.g. `.body.json(); .body.text()` will result in an error `TypeError: unusable` being thrown and returned through the `Promise` rejection._
 
-<!--
-TODO: Make sure that all of these items are documented (classes aren't,
-eg), and then pull the module name into the documentation for that specific
-thing.
--->
+Should you need to access the `body` in plain-text after using a mixin, the best practice is to use the `.text()` mixin first and then manually parse the text to the desired format.
 
-You may pull in just the part of this semver utility that you need if you
-are sensitive to packing and tree-shaking concerns.  The main
-`require('semver')` export uses getter functions to lazily load the parts
-of the API that are used.
+For more information about their behavior, please reference the body mixin from the [Fetch Standard](https://fetch.spec.whatwg.org/#body-mixin).
 
-The following modules are available:
+## Common API Methods
 
-* `require('semver')`
-* `require('semver/classes')`
-* `require('semver/classes/comparator')`
-* `require('semver/classes/range')`
-* `require('semver/classes/semver')`
-* `require('semver/functions/clean')`
-* `require('semver/functions/cmp')`
-* `require('semver/functions/coerce')`
-* `require('semver/functions/compare')`
-* `require('semver/functions/compare-build')`
-* `require('semver/functions/compare-loose')`
-* `require('semver/functions/diff')`
-* `require('semver/functions/eq')`
-* `require('semver/functions/gt')`
-* `require('semver/functions/gte')`
-* `require('semver/functions/inc')`
-* `require('semver/functions/lt')`
-* `require('semver/functions/lte')`
-* `require('semver/functions/major')`
-* `require('semver/functions/minor')`
-* `require('semver/functions/neq')`
-* `require('semver/functions/parse')`
-* `require('semver/functions/patch')`
-* `require('semver/functions/prerelease')`
-* `require('semver/functions/rcompare')`
-* `require('semver/functions/rsort')`
-* `require('semver/functions/satisfies')`
-* `require('semver/functions/sort')`
-* `require('semver/functions/truncate')`
-* `require('semver/functions/valid')`
-* `require('semver/ranges/gtr')`
-* `require('semver/ranges/intersects')`
-* `require('semver/ranges/ltr')`
-* `require('semver/ranges/max-satisfying')`
-* `require('semver/ranges/min-satisfying')`
-* `require('semver/ranges/min-version')`
-* `require('semver/ranges/outside')`
-* `require('semver/ranges/simplify')`
-* `require('semver/ranges/subset')`
-* `require('semver/ranges/to-comparators')`
-* `require('semver/ranges/valid')`
+This section documents our most commonly used API methods. Additional APIs are documented in their own files within the [docs](./docs/) folder and are accessible via the navigation list on the left side of the docs site.
 
+### `undici.request([url, options]): Promise`
+
+Arguments:
+
+* **url** `string | URL | UrlObject`
+* **options** [`RequestOptions`](./docs/docs/api/Dispatcher.md#parameter-requestoptions)
+  * **dispatcher** `Dispatcher` - Default: [getGlobalDispatcher](#undicigetglobaldispatcher)
+  * **method** `String` - Default: `PUT` if `options.body`, otherwise `GET`
+
+Returns a promise with the result of the `Dispatcher.request` method.
+
+Calls `options.dispatcher.request(options)`.
+
+See [Dispatcher.request](./docs/docs/api/Dispatcher.md#dispatcherrequestoptions-callback) for more details, and [request examples](./docs/examples/README.md) for examples.
+
+### `undici.stream([url, options, ]factory): Promise`
+
+Arguments:
+
+* **url** `string | URL | UrlObject`
+* **options** [`StreamOptions`](./docs/docs/api/Dispatcher.md#parameter-streamoptions)
+  * **dispatcher** `Dispatcher` - Default: [getGlobalDispatcher](#undicigetglobaldispatcher)
+  * **method** `String` - Default: `PUT` if `options.body`, otherwise `GET`
+* **factory** `Dispatcher.stream.factory`
+
+Returns a promise with the result of the `Dispatcher.stream` method.
+
+Calls `options.dispatcher.stream(options, factory)`.
+
+See [Dispatcher.stream](./docs/docs/api/Dispatcher.md#dispatcherstreamoptions-factory-callback) for more details.
+
+### `undici.pipeline([url, options, ]handler): Duplex`
+
+Arguments:
+
+* **url** `string | URL | UrlObject`
+* **options** [`PipelineOptions`](./docs/docs/api/Dispatcher.md#parameter-pipelineoptions)
+  * **dispatcher** `Dispatcher` - Default: [getGlobalDispatcher](#undicigetglobaldispatcher)
+  * **method** `String` - Default: `PUT` if `options.body`, otherwise `GET`
+* **handler** `Dispatcher.pipeline.handler`
+
+Returns: `stream.Duplex`
+
+Calls `options.dispatch.pipeline(options, handler)`.
+
+See [Dispatcher.pipeline](./docs/docs/api/Dispatcher.md#dispatcherpipelineoptions-handler) for more details.
+
+### `undici.connect([url, options]): Promise`
+
+Starts two-way communications with the requested resource using [HTTP CONNECT](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/CONNECT).
+
+Arguments:
+
+* **url** `string | URL | UrlObject`
+* **options** [`ConnectOptions`](./docs/docs/api/Dispatcher.md#parameter-connectoptions)
+  * **dispatcher** `Dispatcher` - Default: [getGlobalDispatcher](#undicigetglobaldispatcher)
+* **callback** `(err: Error | null, data: ConnectData | null) => void` (optional)
+
+Returns a promise with the result of the `Dispatcher.connect` method.
+
+Calls `options.dispatch.connect(options)`.
+
+See [Dispatcher.connect](./docs/docs/api/Dispatcher.md#dispatcherconnectoptions-callback) for more details.
+
+### `undici.fetch(input[, init]): Promise`
+
+Implements [fetch](https://fetch.spec.whatwg.org/#fetch-method).
+
+* https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/fetch
+* https://fetch.spec.whatwg.org/#fetch-method
+
+Basic usage example:
+
+```js
+import { fetch } from 'undici'
+
+
+const res = await fetch('https://example.com')
+const json = await res.json()
+console.log(json)
+```
+
+You can pass an optional dispatcher to `fetch` as:
+
+```js
+import { fetch, Agent } from 'undici'
+
+const res = await fetch('https://example.com', {
+  // Mocks are also supported
+  dispatcher: new Agent({
+    keepAliveTimeout: 10,
+    keepAliveMaxTimeout: 10
+  })
+})
+const json = await res.json()
+console.log(json)
+```
+
+#### `request.body`
+
+A body can be of the following types:
+
+- ArrayBuffer
+- ArrayBufferView
+- AsyncIterables
+- Blob
+- Iterables
+- String
+- URLSearchParams
+- FormData
+
+In this implementation of fetch, ```request.body``` now accepts ```Async Iterables```. It is not present in the [Fetch Standard](https://fetch.spec.whatwg.org).
+
+```js
+import { fetch } from 'undici'
+
+const data = {
+  async *[Symbol.asyncIterator]() {
+    yield 'hello'
+    yield 'world'
+  },
+}
+
+await fetch('https://example.com', { body: data, method: 'POST', duplex: 'half' })
+```
+
+[FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData) besides text data and buffers can also utilize streams via [Blob](https://developer.mozilla.org/en-US/docs/Web/API/Blob) objects:
+
+```js
+import { openAsBlob } from 'node:fs'
+
+const file = await openAsBlob('./big.csv')
+const body = new FormData()
+body.set('file', file, 'big.csv')
+
+await fetch('http://example.com', { method: 'POST', body })
+```
+
+#### `request.duplex`
+
+- `'half'`
+
+In this implementation of fetch, `request.duplex` must be set if `request.body` is `ReadableStream` or `Async Iterables`, however, even though the value must be set to `'half'`, it is actually a _full_ duplex. For more detail refer to the [Fetch Standard](https://fetch.spec.whatwg.org/#dom-requestinit-duplex).
+
+#### `response.body`
+
+Nodejs has two kinds of streams: [web streams](https://nodejs.org/api/webstreams.html), which follow the API of the WHATWG web standard found in browsers, and an older Node-specific [streams API](https://nodejs.org/api/stream.html). `response.body` returns a readable web stream. If you would prefer to work with a Node stream you can convert a web stream using `.fromWeb()`.
+
+```js
+import { fetch } from 'undici'
+import { Readable } from 'node:stream'
+
+const response = await fetch('https://example.com')
+const readableWebStream = response.body
+const readableNodeStream = Readable.fromWeb(readableWebStream)
+```
+
+## Specification Compliance
+
+This section documents parts of the [HTTP/1.1](https://www.rfc-editor.org/rfc/rfc9110.html) and [Fetch Standard](https://fetch.spec.whatwg.org) that Undici does
+not support or does not fully implement.
+
+#### CORS
+
+Unlike browsers, Undici does not implement CORS (Cross-Origin Resource Sharing) checks by default. This means:
+
+- No preflight requests are automatically sent for cross-origin requests
+- No validation of `Access-Control-Allow-Origin` headers is performed
+- Requests to any origin are allowed regardless of the source
+
+This behavior is intentional for server-side environments where CORS restrictions are typically unnecessary. If your application requires CORS-like protections, you will need to implement these checks manually.
+
+#### Garbage Collection
+
+* https://fetch.spec.whatwg.org/#garbage-collection
+
+The [Fetch Standard](https://fetch.spec.whatwg.org) allows users to skip consuming the response body by relying on
+[garbage collection](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Memory_Management#garbage_collection) to release connection resources.
+
+Garbage collection in Node is less aggressive and deterministic
+(due to the lack of clear idle periods that browsers have through the rendering refresh rate)
+which means that leaving the release of connection resources to the garbage collector can lead
+to excessive connection usage, reduced performance (due to less connection re-use), and even
+stalls or deadlocks when running out of connections.
+Therefore, __it is important to always either consume or cancel the response body anyway__.
+
+```js
+// Do
+const { body, headers } = await fetch(url);
+for await (const chunk of body) {
+  // force consumption of body
+}
+
+// Do not
+const { headers } = await fetch(url);
+```
+
+However, if you want to get only headers, it might be better to use `HEAD` request method. Usage of this method will obviate the need for consumption or cancelling of the response body. See [MDN - HTTP - HTTP request methods - HEAD](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/HEAD) for more details.
+
+```js
+const headers = await fetch(url, { method: 'HEAD' })
+  .then(res => res.headers)
+```
+
+Note that consuming the response body is _mandatory_ for `request`:
+
+```js
+// Do
+const { body, headers } = await request(url);
+await body.dump(); // force consumption of body
+
+// Do not
+const { headers } = await request(url);
+```
+
+#### Forbidden and Safelisted Header Names
+
+* https://fetch.spec.whatwg.org/#cors-safelisted-response-header-name
+* https://fetch.spec.whatwg.org/#forbidden-header-name
+* https://fetch.spec.whatwg.org/#forbidden-response-header-name
+* https://github.com/wintercg/fetch/issues/6
+
+The [Fetch Standard](https://fetch.spec.whatwg.org) requires implementations to exclude certain headers from requests and responses. In browser environments, some headers are forbidden so the user agent remains in full control over them. In Undici, these constraints are removed to give more control to the user.
+
+#### Content-Encoding
+
+* https://www.rfc-editor.org/rfc/rfc9110#field.content-encoding
+
+Undici limits the number of `Content-Encoding` layers in a response to **5** to prevent resource exhaustion attacks. If a server responds with more than 5 content-encodings (e.g., `Content-Encoding: gzip, gzip, gzip, gzip, gzip, gzip`), the fetch will be rejected with an error. This limit matches the approach taken by [curl](https://curl.se/docs/CVE-2022-32206.html) and [urllib3](https://github.com/advisories/GHSA-gm62-xv2j-4rw9).
+
+#### `undici.upgrade([url, options]): Promise`
+
+Upgrade to a different protocol. See [MDN - HTTP - Protocol upgrade mechanism](https://developer.mozilla.org/en-US/docs/Web/HTTP/Protocol_upgrade_mechanism) for more details.
+
+Arguments:
+
+* **url** `string | URL | UrlObject`
+* **options** [`UpgradeOptions`](./docs/docs/api/Dispatcher.md#parameter-upgradeoptions)
+  * **dispatcher** `Dispatcher` - Default: [getGlobalDispatcher](#undicigetglobaldispatcher)
+* **callback** `(error: Error | null, data: UpgradeData) => void` (optional)
+
+Returns a promise with the result of the `Dispatcher.upgrade` method.
+
+Calls `options.dispatcher.upgrade(options)`.
+
+See [Dispatcher.upgrade](./docs/docs/api/Dispatcher.md#dispatcherupgradeoptions-callback) for more details.
+
+### `undici.setGlobalDispatcher(dispatcher)`
+
+* dispatcher `Dispatcher`
+
+Sets the global dispatcher used by Common API Methods. Global dispatcher is shared among compatible undici modules,
+including undici that is bundled internally with node.js.
+
+### `undici.getGlobalDispatcher()`
+
+Gets the global dispatcher used by Common API Methods.
+
+Returns: `Dispatcher`
+
+### `undici.setGlobalOrigin(origin)`
+
+* origin `string | URL | undefined`
+
+Sets the global origin used in `fetch`.
+
+If `undefined` is passed, the global origin will be reset. This will cause `Response.redirect`, `new Request()`, and `fetch` to throw an error when a relative path is passed.
+
+```js
+setGlobalOrigin('http://localhost:3000')
+
+const response = await fetch('/api/ping')
+
+console.log(response.url) // http://localhost:3000/api/ping
+```
+
+### `undici.getGlobalOrigin()`
+
+Gets the global origin used in `fetch`.
+
+Returns: `URL`
+
+### `UrlObject`
+
+* **port** `string | number` (optional)
+* **path** `string` (optional)
+* **pathname** `string` (optional)
+* **hostname** `string` (optional)
+* **origin** `string` (optional)
+* **protocol** `string` (optional)
+* **search** `string` (optional)
+
+#### Expect
+
+Undici does not support the `Expect` request header field. The request
+body is  always immediately sent and the `100 Continue` response will be
+ignored.
+
+Refs: https://tools.ietf.org/html/rfc7231#section-5.1.1
+
+#### Pipelining
+
+Undici will only use pipelining if configured with a `pipelining` factor
+greater than `1`. Also it is important to pass `blocking: false` to the
+request options to properly pipeline requests.
+
+Undici always assumes that connections are persistent and will immediately
+pipeline requests, without checking whether the connection is persistent.
+Hence, automatic fallback to HTTP/1.0 or HTTP/1.1 without pipelining is
+not supported.
+
+Undici will immediately pipeline when retrying requests after a failed
+connection. However, Undici will not retry the first remaining requests in
+the prior pipeline and instead error the corresponding callback/promise/stream.
+
+Undici will abort all running requests in the pipeline when any of them are
+aborted.
+
+* Refs: https://tools.ietf.org/html/rfc2616#section-8.1.2.2
+* Refs: https://tools.ietf.org/html/rfc7230#section-6.3.2
+
+#### Manual Redirect
+
+Since it is not possible to manually follow an HTTP redirect on the server-side,
+Undici returns the actual response instead of an `opaqueredirect` filtered one
+when invoked with a `manual` redirect. This aligns `fetch()` with the other
+implementations in Deno and Cloudflare Workers.
+
+Refs: https://fetch.spec.whatwg.org/#atomic-http-redirect-handling
+
+### Workarounds
+
+#### Network address family autoselection.
+
+If you experience problem when connecting to a remote server that is resolved by your DNS servers to a IPv6 (AAAA record)
+first, there are chances that your local router or ISP might have problem connecting to IPv6 networks. In that case
+undici will throw an error with code `UND_ERR_CONNECT_TIMEOUT`.
+
+If the target server resolves to both a IPv6 and IPv4 (A records) address and you are using a compatible Node version
+(18.3.0 and above), you can fix the problem by providing the `autoSelectFamily` option (support by both `undici.request`
+and `undici.Agent`) which will enable the family autoselection algorithm when establishing the connection.
+
+## Collaborators
+
+* [__Daniele Belardi__](https://github.com/dnlup), <https://www.npmjs.com/~dnlup>
+* [__Ethan Arrowood__](https://github.com/ethan-arrowood), <https://www.npmjs.com/~ethan_arrowood>
+* [__Matteo Collina__](https://github.com/mcollina), <https://www.npmjs.com/~matteo.collina>
+* [__Matthew Aitken__](https://github.com/KhafraDev), <https://www.npmjs.com/~khaf>
+* [__Robert Nagy__](https://github.com/ronag), <https://www.npmjs.com/~ronag>
+* [__Szymon Marczak__](https://github.com/szmarczak), <https://www.npmjs.com/~szmarczak>
+
+## Past Collaborators
+* [__Tomas Della Vedova__](https://github.com/delvedor), <https://www.npmjs.com/~delvedor>
+
+### Releasers
+
+* [__Ethan Arrowood__](https://github.com/ethan-arrowood), <https://www.npmjs.com/~ethan_arrowood>
+* [__Matteo Collina__](https://github.com/mcollina), <https://www.npmjs.com/~matteo.collina>
+* [__Robert Nagy__](https://github.com/ronag), <https://www.npmjs.com/~ronag>
+* [__Matthew Aitken__](https://github.com/KhafraDev), <https://www.npmjs.com/~khaf>
+
+## Long Term Support
+
+Undici aligns with the Node.js LTS schedule. The following table shows the supported versions:
+
+| Undici Version | Bundled in Node.js | Node.js Versions Supported | End of Life |
+|----------------|-------------------|----------------------------|-------------|
+| 5.x           | 18.x              | ≥14.0 (tested: 14, 16, 18) | 2024-04-30  |
+| 6.x           | 20.x, 22.x       | ≥18.17 (tested: 18, 20, 21, 22) | 2026-04-30  |
+| 7.x           | 24.x              | ≥20.18.1 (tested: 20, 22, 24) | 2027-04-30  |
+
+## License
+
+MIT

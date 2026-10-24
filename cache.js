@@ -1,621 +1,864 @@
 'use strict'
 
 const assert = require('node:assert')
-const { Readable } = require('node:stream')
-const util = require('../core/util')
-const CacheHandler = require('../handler/cache-handler')
-const MemoryCacheStore = require('../cache/memory-cache-store')
-const CacheRevalidationHandler = require('../handler/cache-revalidation-handler')
-const { assertCacheStore, assertCacheMethods, makeCacheKey, normalizeHeaders, parseCacheControlHeader, isInvalidOrWildcardVaryHeader } = require('../util/cache.js')
-const { AbortError } = require('../core/errors.js')
-const { parseHttpDate } = require('../util/date.js')
+
+const { kConstruct } = require('../../core/symbols')
+const { urlEquals, getFieldValues } = require('./util')
+const { kEnumerableProperty, isDisturbed } = require('../../core/util')
+const { webidl } = require('../webidl')
+const { cloneResponse, fromInnerResponse, getResponseState } = require('../fetch/response')
+const { Request, fromInnerRequest, getRequestState } = require('../fetch/request')
+const { fetching } = require('../fetch/index')
+const { urlIsHttpHttpsScheme, readAllBytes } = require('../fetch/util')
+const { createDeferredPromise } = require('../../util/promise')
 
 /**
- * @param {(string | RegExp)[] | undefined} origins
- * @param {string} name
+ * @see https://w3c.github.io/ServiceWorker/#dfn-cache-batch-operation
+ * @typedef {Object} CacheBatchOperation
+ * @property {'delete' | 'put'} type
+ * @property {any} request
+ * @property {any} response
+ * @property {import('../../../types/cache').CacheQueryOptions} options
  */
-function assertCacheOrigins (origins, name) {
-  if (origins === undefined) return
-  if (!Array.isArray(origins)) {
-    throw new TypeError(`expected ${name} to be an array or undefined, got ${typeof origins}`)
-  }
-  for (let i = 0; i < origins.length; i++) {
-    const origin = origins[i]
-    if (typeof origin !== 'string' && !(origin instanceof RegExp)) {
-      throw new TypeError(`expected ${name}[${i}] to be a string or RegExp, got ${typeof origin}`)
-    }
-  }
-}
 
-const nop = () => {}
+/**
+ * @see https://w3c.github.io/ServiceWorker/#dfn-request-response-list
+ * @typedef {[any, any][]} requestResponseList
+ */
 
-function trimOWS (value) {
-  return value.replace(/^[\t ]+|[\t ]+$/g, '')
-}
+class Cache {
+  /**
+   * @see https://w3c.github.io/ServiceWorker/#dfn-relevant-request-response-list
+   * @type {requestResponseList}
+   */
+  #relevantRequestResponseList
 
-function arrayIncludes (array, value) {
-  for (let i = 0; i < array.length; i++) {
-    if (array[i] === value) {
-      return true
-    }
-  }
-
-  return false
-}
-
-function hasPragmaNoCache (headers) {
-  const pragma = headers?.pragma
-  if (!pragma) {
-    return false
-  }
-
-  const values = Array.isArray(pragma) ? pragma : [pragma]
-  for (let i = 0; i < values.length; i++) {
-    const value = values[i]
-    if (typeof value !== 'string') {
-      continue
+  constructor () {
+    if (arguments[0] !== kConstruct) {
+      webidl.illegalConstructor()
     }
 
-    const directives = value.split(',')
-    for (let j = 0; j < directives.length; j++) {
-      if (trimOWS(directives[j]).toLowerCase() === 'no-cache') {
-        return true
-      }
-    }
+    webidl.util.markAsUncloneable(this)
+    this.#relevantRequestResponseList = arguments[1]
   }
 
-  return false
-}
+  async match (request, options = {}) {
+    webidl.brandCheck(this, Cache)
 
-/**
- * @typedef {(options: import('../../types/dispatcher.d.ts').default.DispatchOptions, handler: import('../../types/dispatcher.d.ts').default.DispatchHandler) => void} DispatchFn
- */
+    const prefix = 'Cache.match'
+    webidl.argumentLengthCheck(arguments, 1, prefix)
 
-/**
- * @param {import('../../types/cache-interceptor.d.ts').default.GetResult} result
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheControlDirectives | undefined} cacheControlDirectives
- * @param {import('../../types/dispatcher.d.ts').default.RequestOptions} opts
- * @returns {boolean}
- */
-function needsRevalidation (result, cacheControlDirectives, { headers = {} }) {
-  // Always revalidate requests with the no-cache request directive.
-  if (cacheControlDirectives?.['no-cache']) {
-    return true
-  }
+    request = webidl.converters.RequestInfo(request)
+    options = webidl.converters.CacheQueryOptions(options, prefix, 'options')
 
-  // Always revalidate requests with unqualified no-cache response directive.
-  if (result.cacheControlDirectives?.['no-cache'] && !Array.isArray(result.cacheControlDirectives['no-cache'])) {
-    return true
-  }
+    const p = this.#internalMatchAll(request, options, 1)
 
-  // Always revalidate requests with conditional headers.
-  if (headers['if-modified-since'] || headers['if-none-match']) {
-    return true
-  }
-
-  return false
-}
-
-/**
- * @param {import('../../types/cache-interceptor.d.ts').default.GetResult} result
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheOptions['type']} cacheType
- * @returns {boolean}
- */
-function staleResponseRequiresRevalidation (result, cacheType) {
-  return result.cacheControlDirectives?.['must-revalidate'] === true ||
-    (cacheType === 'shared' && (
-      result.cacheControlDirectives?.['proxy-revalidate'] === true ||
-      // https://www.rfc-editor.org/rfc/rfc9111.html#section-5.2.2.10
-      // s-maxage implies proxy-revalidate for shared caches.
-      result.cacheControlDirectives?.['s-maxage'] !== undefined
-    ))
-}
-
-/**
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheOptions['type']} cacheType
- * @param {import('../../types/header.d.ts').IncomingHttpHeaders} headers
- * @returns {boolean}
- */
-function revalidationResponseDisallowsCachedReuse (cacheType, headers) {
-  if (
-    (headers.vary && isInvalidOrWildcardVaryHeader(headers.vary)) ||
-    (cacheType === 'shared' && Object.hasOwn(headers, 'set-cookie'))
-  ) {
-    return true
-  }
-
-  const cacheControl = headers['cache-control']
-  if (!cacheControl) {
-    return false
-  }
-
-  const cacheControlDirectives = parseCacheControlHeader(cacheControl)
-  return cacheControlDirectives['no-store'] === true ||
-    (cacheType === 'shared' && cacheControlDirectives.private === true)
-}
-
-function revalidationResponseUpdatesCacheControl (headers) {
-  return headers['cache-control'] !== undefined
-}
-
-function deleteCachedValue (store, cacheKey) {
-  try {
-    store.delete(cacheKey)?.catch?.(nop)
-  } catch {
-    // Fail silently
-  }
-}
-
-function getUsableLastModified (headers) {
-  const lastModified = headers?.['last-modified']
-  if (typeof lastModified === 'string' && parseHttpDate(lastModified)) {
-    return lastModified
-  }
-}
-
-function makeRevalidationHeaders (opts, result) {
-  const headers = {
-    ...opts.headers,
-    'if-modified-since': getUsableLastModified(result.headers) ?? new Date(result.cachedAt).toUTCString()
-  }
-
-  if (result.etag) {
-    headers['if-none-match'] = result.etag
-  }
-
-  if (result.vary) {
-    for (const key in result.vary) {
-      if (result.vary[key] != null) {
-        headers[key] = result.vary[key]
-      }
-    }
-  }
-
-  return headers
-}
-
-/**
- * @param {import('../../types/cache-interceptor.d.ts').default.GetResult} result
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheControlDirectives | undefined} cacheControlDirectives
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheOptions['type']} cacheType
- * @returns {boolean}
- */
-function isStale (result, cacheControlDirectives, cacheType) {
-  const now = Date.now()
-  if (now > result.staleAt) {
-    // Response is stale
-    if (!staleResponseRequiresRevalidation(result, cacheType) && cacheControlDirectives?.['max-stale']) {
-      // There's a threshold where we can serve stale responses, let's see if
-      //  we're in it
-      // https://www.rfc-editor.org/rfc/rfc9111.html#name-max-stale
-      const gracePeriod = result.staleAt + (cacheControlDirectives['max-stale'] * 1000)
-      return now > gracePeriod
+    if (p.length === 0) {
+      return
     }
 
-    return true
+    return p[0]
   }
 
-  if (cacheControlDirectives?.['min-fresh']) {
-    // https://www.rfc-editor.org/rfc/rfc9111.html#section-5.2.1.3
+  async matchAll (request = undefined, options = {}) {
+    webidl.brandCheck(this, Cache)
 
-    // At this point, staleAt is always > now
-    const timeLeftTillStale = result.staleAt - now
-    const threshold = cacheControlDirectives['min-fresh'] * 1000
+    const prefix = 'Cache.matchAll'
+    if (request !== undefined) request = webidl.converters.RequestInfo(request)
+    options = webidl.converters.CacheQueryOptions(options, prefix, 'options')
 
-    return timeLeftTillStale <= threshold
+    return this.#internalMatchAll(request, options)
   }
 
-  return false
-}
+  async add (request) {
+    webidl.brandCheck(this, Cache)
 
-/**
- * Check if we're within the stale-while-revalidate window for a stale response
- * @param {import('../../types/cache-interceptor.d.ts').default.GetResult} result
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheOptions['type']} cacheType
- * @returns {boolean}
- */
-function withinStaleWhileRevalidateWindow (result, cacheType) {
-  const staleWhileRevalidate = result.cacheControlDirectives?.['stale-while-revalidate']
-  if (!staleWhileRevalidate || staleResponseRequiresRevalidation(result, cacheType)) {
-    return false
+    const prefix = 'Cache.add'
+    webidl.argumentLengthCheck(arguments, 1, prefix)
+
+    request = webidl.converters.RequestInfo(request)
+
+    // 1.
+    const requests = [request]
+
+    // 2.
+    const responseArrayPromise = this.addAll(requests)
+
+    // 3.
+    return await responseArrayPromise
   }
 
-  const now = Date.now()
-  const staleWhileRevalidateExpiry = result.staleAt + (staleWhileRevalidate * 1000)
-  return now <= staleWhileRevalidateExpiry
-}
+  async addAll (requests) {
+    webidl.brandCheck(this, Cache)
 
-/**
- * @param {DispatchFn} dispatch
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheHandlerOptions} globalOpts
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheKey} cacheKey
- * @param {import('../../types/dispatcher.d.ts').default.DispatchHandler} handler
- * @param {import('../../types/dispatcher.d.ts').default.RequestOptions} opts
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheControlDirectives | undefined} reqCacheControl
- */
-function handleUncachedResponse (
-  dispatch,
-  globalOpts,
-  cacheKey,
-  handler,
-  opts,
-  reqCacheControl
-) {
-  if (reqCacheControl?.['only-if-cached']) {
-    let aborted = false
-    try {
-      if (typeof handler.onConnect === 'function') {
-        handler.onConnect(() => {
-          aborted = true
+    const prefix = 'Cache.addAll'
+    webidl.argumentLengthCheck(arguments, 1, prefix)
+
+    // 1.
+    const responsePromises = []
+
+    // 2.
+    const requestList = []
+
+    // 3.
+    for (let request of requests) {
+      if (request === undefined) {
+        throw webidl.errors.conversionFailed({
+          prefix,
+          argument: 'Argument 1',
+          types: ['undefined is not allowed']
         })
-
-        if (aborted) {
-          return
-        }
       }
 
-      if (typeof handler.onHeaders === 'function') {
-        handler.onHeaders(504, [], nop, 'Gateway Timeout')
-        if (aborted) {
-          return
-        }
+      request = webidl.converters.RequestInfo(request)
+
+      if (typeof request === 'string') {
+        continue
       }
 
-      if (typeof handler.onComplete === 'function') {
-        handler.onComplete([])
-      }
-    } catch (err) {
-      if (typeof handler.onError === 'function') {
-        handler.onError(err)
+      // 3.1
+      const r = getRequestState(request)
+
+      // 3.2
+      if (!urlIsHttpHttpsScheme(r.url) || r.method !== 'GET') {
+        throw webidl.errors.exception({
+          header: prefix,
+          message: 'Expected http/s scheme when method is not GET.'
+        })
       }
     }
 
-    return true
-  }
+    // 4.
+    /** @type {ReturnType<typeof fetching>[]} */
+    const fetchControllers = []
 
-  return dispatch(opts, new CacheHandler(globalOpts, cacheKey, handler))
-}
+    // 5.
+    for (const request of requests) {
+      // 5.1
+      const r = getRequestState(new Request(request))
 
-/**
- * @param {import('../../types/dispatcher.d.ts').default.DispatchHandler} handler
- * @param {import('../../types/dispatcher.d.ts').default.RequestOptions} opts
- * @param {import('../../types/cache-interceptor.d.ts').default.GetResult} result
- * @param {number} age
- * @param {any} context
- * @param {boolean} isStale
- */
-function sendCachedValue (handler, opts, result, age, context, isStale) {
-  // TODO (perf): Readable.from path can be optimized...
-  const stream = util.isStream(result.body)
-    ? result.body
-    : Readable.from(result.body ?? [])
-
-  assert(!stream.destroyed, 'stream should not be destroyed')
-  assert(!stream.readableDidRead, 'stream should not be readableDidRead')
-
-  const controller = {
-    resume () {
-      stream.resume()
-    },
-    pause () {
-      stream.pause()
-    },
-    get paused () {
-      return stream.isPaused()
-    },
-    get aborted () {
-      return stream.destroyed
-    },
-    get reason () {
-      return stream.errored
-    },
-    abort (reason) {
-      stream.destroy(reason ?? new AbortError())
-    }
-  }
-
-  stream
-    .on('error', function (err) {
-      if (!this.readableEnded) {
-        if (typeof handler.onResponseError === 'function') {
-          handler.onResponseError(controller, err)
-        } else {
-          throw err
-        }
+      // 5.2
+      if (!urlIsHttpHttpsScheme(r.url)) {
+        throw webidl.errors.exception({
+          header: prefix,
+          message: 'Expected http/s scheme.'
+        })
       }
-    })
-    .on('close', function () {
-      if (!this.errored) {
-        handler.onResponseEnd?.(controller, {})
-      }
-    })
 
-  handler.onRequestStart?.(controller, context)
+      // 5.4
+      r.initiator = 'fetch'
+      r.destination = 'subresource'
 
-  if (stream.destroyed) {
-    return
-  }
+      // 5.5
+      requestList.push(r)
 
-  // Add the age header
-  // https://www.rfc-editor.org/rfc/rfc9111.html#name-age
-  const headers = { ...result.headers, age: String(age) }
+      // 5.6
+      const responsePromise = createDeferredPromise()
 
-  if (isStale) {
-    // Add warning header
-    //  https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Warning
-    headers.warning = '110 - "response is stale"'
-  }
+      // 5.7
+      fetchControllers.push(fetching({
+        request: r,
+        processResponse (response) {
+          // 1.
+          if (response.type === 'error' || response.status === 206 || response.status < 200 || response.status > 299) {
+            responsePromise.reject(webidl.errors.exception({
+              header: 'Cache.addAll',
+              message: 'Received an invalid status code or the request failed.'
+            }))
+          } else if (response.headersList.contains('vary')) { // 2.
+            // 2.1
+            const fieldValues = getFieldValues(response.headersList.get('vary'))
 
-  handler.onResponseStart?.(controller, result.statusCode, headers, result.statusMessage)
+            // 2.2
+            for (const fieldValue of fieldValues) {
+              // 2.2.1
+              if (fieldValue === '*') {
+                responsePromise.reject(webidl.errors.exception({
+                  header: 'Cache.addAll',
+                  message: 'invalid vary field value'
+                }))
 
-  if (opts.method === 'HEAD') {
-    stream.destroy()
-  } else {
-    stream.on('data', function (chunk) {
-      handler.onResponseData?.(controller, chunk)
-    })
-  }
-}
-
-/**
- * @param {DispatchFn} dispatch
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheHandlerOptions} globalOpts
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheKey} cacheKey
- * @param {import('../../types/dispatcher.d.ts').default.DispatchHandler} handler
- * @param {import('../../types/dispatcher.d.ts').default.RequestOptions} opts
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheControlDirectives | undefined} reqCacheControl
- * @param {import('../../types/cache-interceptor.d.ts').default.GetResult | undefined} result
- */
-function handleResult (
-  dispatch,
-  globalOpts,
-  cacheKey,
-  handler,
-  opts,
-  reqCacheControl,
-  result
-) {
-  if (!result) {
-    return handleUncachedResponse(dispatch, globalOpts, cacheKey, handler, opts, reqCacheControl)
-  }
-
-  // Shared stores may outlive the Undici version that wrote them. Do not
-  // re-serve a Set-Cookie header from an existing shared-cache entry.
-  if (globalOpts.type === 'shared' && Object.hasOwn(result.headers, 'set-cookie')) {
-    if (util.isStream(result.body)) {
-      result.body.on('error', nop).destroy()
-    }
-
-    deleteCachedValue(globalOpts.store, cacheKey)
-    return handleUncachedResponse(dispatch, globalOpts, cacheKey, handler, opts, reqCacheControl)
-  }
-
-  const now = Date.now()
-  if (now > result.deleteAt) {
-    // Response is expired, cache store shouldn't have given this to us
-    return dispatch(opts, new CacheHandler(globalOpts, cacheKey, handler))
-  }
-
-  const age = Math.round((now - result.cachedAt) / 1000)
-  const requestMaxAgeExpired = reqCacheControl?.['max-age'] !== undefined && age >= reqCacheControl['max-age']
-
-  const stale = requestMaxAgeExpired || isStale(result, reqCacheControl, globalOpts.type)
-  const revalidate = requestMaxAgeExpired || needsRevalidation(result, reqCacheControl, opts)
-
-  // Check if the response is stale
-  if (stale || revalidate) {
-    if (util.isStream(opts.body) && util.bodyLength(opts.body) !== 0) {
-      // If body is a stream we can't revalidate...
-      // TODO (fix): This could be less strict...
-      return dispatch(opts, new CacheHandler(globalOpts, cacheKey, handler))
-    }
-
-    // RFC 5861: If we're within stale-while-revalidate window, serve stale immediately
-    // and revalidate in background, unless immediate revalidation is necessary
-    if (!revalidate && withinStaleWhileRevalidateWindow(result, globalOpts.type)) {
-      // Serve stale response immediately
-      sendCachedValue(handler, opts, result, age, null, true)
-
-      // Start background revalidation (fire-and-forget)
-      queueMicrotask(() => {
-        const headers = makeRevalidationHeaders(opts, result)
-
-        // Background revalidation - update cache if we get new data
-        dispatch(
-          {
-            ...opts,
-            headers
-          },
-          new CacheHandler(globalOpts, cacheKey, {
-            // Silent handler that just updates the cache
-            onRequestStart () {},
-            onRequestUpgrade () {},
-            onResponseStart () {},
-            onResponseData () {},
-            onResponseEnd () {},
-            onResponseError () {}
-          })
-        )
-      })
-
-      return true
-    }
-
-    let withinStaleIfErrorThreshold = false
-    if (!staleResponseRequiresRevalidation(result, globalOpts.type)) {
-      const staleIfErrorExpiry = result.cacheControlDirectives['stale-if-error'] ?? reqCacheControl?.['stale-if-error']
-      if (staleIfErrorExpiry) {
-        withinStaleIfErrorThreshold = now < (result.staleAt + (staleIfErrorExpiry * 1000))
-      }
-    }
-
-    const headers = makeRevalidationHeaders(opts, result)
-
-    // We need to revalidate the response
-    return dispatch(
-      {
-        ...opts,
-        headers
-      },
-      new CacheRevalidationHandler(
-        (success, context, statusCode, headers) => {
-          if (success) {
-            if (statusCode === 304) {
-              if (revalidationResponseDisallowsCachedReuse(globalOpts.type, headers)) {
-                if (util.isStream(result.body)) {
-                  result.body.on('error', nop).destroy()
+                for (const controller of fetchControllers) {
+                  controller.abort()
                 }
 
-                deleteCachedValue(globalOpts.store, cacheKey)
-                return dispatch(opts, new CacheHandler(globalOpts, cacheKey, handler))
-              }
-
-              if (revalidationResponseUpdatesCacheControl(headers)) {
-                deleteCachedValue(globalOpts.store, cacheKey)
+                return
               }
             }
-
-            // TODO: successful revalidation should be considered fresh (not give stale warning).
-            sendCachedValue(handler, opts, result, age, context, stale)
-          } else if (util.isStream(result.body)) {
-            result.body.on('error', nop).destroy()
           }
         },
-        new CacheHandler(globalOpts, cacheKey, handler),
-        withinStaleIfErrorThreshold
-      )
-    )
+        processResponseEndOfBody (response) {
+          // 1.
+          if (response.aborted) {
+            responsePromise.reject(new DOMException('aborted', 'AbortError'))
+            return
+          }
+
+          // 2.
+          responsePromise.resolve(response)
+        }
+      }))
+
+      // 5.8
+      responsePromises.push(responsePromise.promise)
+    }
+
+    // 6.
+    const p = Promise.all(responsePromises)
+
+    // 7.
+    const responses = await p
+
+    // 7.1
+    const operations = []
+
+    // 7.2
+    let index = 0
+
+    // 7.3
+    for (const response of responses) {
+      // 7.3.1
+      /** @type {CacheBatchOperation} */
+      const operation = {
+        type: 'put', // 7.3.2
+        request: requestList[index], // 7.3.3
+        response // 7.3.4
+      }
+
+      operations.push(operation) // 7.3.5
+
+      index++ // 7.3.6
+    }
+
+    // 7.5
+    const cacheJobPromise = createDeferredPromise()
+
+    // 7.6.1
+    let errorData = null
+
+    // 7.6.2
+    try {
+      this.#batchCacheOperations(operations)
+    } catch (e) {
+      errorData = e
+    }
+
+    // 7.6.3
+    queueMicrotask(() => {
+      // 7.6.3.1
+      if (errorData === null) {
+        cacheJobPromise.resolve(undefined)
+      } else {
+        // 7.6.3.2
+        cacheJobPromise.reject(errorData)
+      }
+    })
+
+    // 7.7
+    return cacheJobPromise.promise
   }
 
-  // Dump request body.
-  if (util.isStream(opts.body)) {
-    opts.body.on('error', nop).destroy()
+  async put (request, response) {
+    webidl.brandCheck(this, Cache)
+
+    const prefix = 'Cache.put'
+    webidl.argumentLengthCheck(arguments, 2, prefix)
+
+    request = webidl.converters.RequestInfo(request)
+    response = webidl.converters.Response(response, prefix, 'response')
+
+    // 1.
+    let innerRequest = null
+
+    // 2.
+    if (webidl.is.Request(request)) {
+      innerRequest = getRequestState(request)
+    } else { // 3.
+      innerRequest = getRequestState(new Request(request))
+    }
+
+    // 4.
+    if (!urlIsHttpHttpsScheme(innerRequest.url) || innerRequest.method !== 'GET') {
+      throw webidl.errors.exception({
+        header: prefix,
+        message: 'Expected an http/s scheme when method is not GET'
+      })
+    }
+
+    // 5.
+    const innerResponse = getResponseState(response)
+
+    // 6.
+    if (innerResponse.status === 206) {
+      throw webidl.errors.exception({
+        header: prefix,
+        message: 'Got 206 status'
+      })
+    }
+
+    // 7.
+    if (innerResponse.headersList.contains('vary')) {
+      // 7.1.
+      const fieldValues = getFieldValues(innerResponse.headersList.get('vary'))
+
+      // 7.2.
+      for (const fieldValue of fieldValues) {
+        // 7.2.1
+        if (fieldValue === '*') {
+          throw webidl.errors.exception({
+            header: prefix,
+            message: 'Got * vary field value'
+          })
+        }
+      }
+    }
+
+    // 8.
+    if (innerResponse.body && (isDisturbed(innerResponse.body.stream) || innerResponse.body.stream.locked)) {
+      throw webidl.errors.exception({
+        header: prefix,
+        message: 'Response body is locked or disturbed'
+      })
+    }
+
+    // 9.
+    const clonedResponse = cloneResponse(innerResponse)
+
+    // 10.
+    const bodyReadPromise = createDeferredPromise()
+
+    // 11.
+    if (innerResponse.body != null) {
+      // 11.1
+      const stream = innerResponse.body.stream
+
+      // 11.2
+      const reader = stream.getReader()
+
+      // 11.3
+      readAllBytes(reader, bodyReadPromise.resolve, bodyReadPromise.reject)
+    } else {
+      bodyReadPromise.resolve(undefined)
+    }
+
+    // 12.
+    /** @type {CacheBatchOperation[]} */
+    const operations = []
+
+    // 13.
+    /** @type {CacheBatchOperation} */
+    const operation = {
+      type: 'put', // 14.
+      request: innerRequest, // 15.
+      response: clonedResponse // 16.
+    }
+
+    // 17.
+    operations.push(operation)
+
+    // 19.
+    const bytes = await bodyReadPromise.promise
+
+    if (clonedResponse.body != null) {
+      clonedResponse.body.source = bytes
+    }
+
+    // 19.1
+    const cacheJobPromise = createDeferredPromise()
+
+    // 19.2.1
+    let errorData = null
+
+    // 19.2.2
+    try {
+      this.#batchCacheOperations(operations)
+    } catch (e) {
+      errorData = e
+    }
+
+    // 19.2.3
+    queueMicrotask(() => {
+      // 19.2.3.1
+      if (errorData === null) {
+        cacheJobPromise.resolve()
+      } else { // 19.2.3.2
+        cacheJobPromise.reject(errorData)
+      }
+    })
+
+    return cacheJobPromise.promise
   }
 
-  sendCachedValue(handler, opts, result, age, null, false)
+  async delete (request, options = {}) {
+    webidl.brandCheck(this, Cache)
+
+    const prefix = 'Cache.delete'
+    webidl.argumentLengthCheck(arguments, 1, prefix)
+
+    request = webidl.converters.RequestInfo(request)
+    options = webidl.converters.CacheQueryOptions(options, prefix, 'options')
+
+    /**
+     * @type {Request}
+     */
+    let r = null
+
+    if (webidl.is.Request(request)) {
+      r = getRequestState(request)
+
+      if (r.method !== 'GET' && !options.ignoreMethod) {
+        return false
+      }
+    } else {
+      assert(typeof request === 'string')
+
+      r = getRequestState(new Request(request))
+    }
+
+    /** @type {CacheBatchOperation[]} */
+    const operations = []
+
+    /** @type {CacheBatchOperation} */
+    const operation = {
+      type: 'delete',
+      request: r,
+      options
+    }
+
+    operations.push(operation)
+
+    const cacheJobPromise = createDeferredPromise()
+
+    let errorData = null
+    let requestResponses
+
+    try {
+      requestResponses = this.#batchCacheOperations(operations)
+    } catch (e) {
+      errorData = e
+    }
+
+    queueMicrotask(() => {
+      if (errorData === null) {
+        cacheJobPromise.resolve(!!requestResponses?.length)
+      } else {
+        cacheJobPromise.reject(errorData)
+      }
+    })
+
+    return cacheJobPromise.promise
+  }
+
+  /**
+   * @see https://w3c.github.io/ServiceWorker/#dom-cache-keys
+   * @param {any} request
+   * @param {import('../../../types/cache').CacheQueryOptions} options
+   * @returns {Promise<readonly Request[]>}
+   */
+  async keys (request = undefined, options = {}) {
+    webidl.brandCheck(this, Cache)
+
+    const prefix = 'Cache.keys'
+
+    if (request !== undefined) request = webidl.converters.RequestInfo(request)
+    options = webidl.converters.CacheQueryOptions(options, prefix, 'options')
+
+    // 1.
+    let r = null
+
+    // 2.
+    if (request !== undefined) {
+      // 2.1
+      if (webidl.is.Request(request)) {
+        // 2.1.1
+        r = getRequestState(request)
+
+        // 2.1.2
+        if (r.method !== 'GET' && !options.ignoreMethod) {
+          return []
+        }
+      } else if (typeof request === 'string') { // 2.2
+        r = getRequestState(new Request(request))
+      }
+    }
+
+    // 4.
+    const promise = createDeferredPromise()
+
+    // 5.
+    // 5.1
+    const requests = []
+
+    // 5.2
+    if (request === undefined) {
+      // 5.2.1
+      for (const requestResponse of this.#relevantRequestResponseList) {
+        // 5.2.1.1
+        requests.push(requestResponse[0])
+      }
+    } else { // 5.3
+      // 5.3.1
+      const requestResponses = this.#queryCache(r, options)
+
+      // 5.3.2
+      for (const requestResponse of requestResponses) {
+        // 5.3.2.1
+        requests.push(requestResponse[0])
+      }
+    }
+
+    // 5.4
+    queueMicrotask(() => {
+      // 5.4.1
+      const requestList = []
+
+      // 5.4.2
+      for (const request of requests) {
+        const requestObject = fromInnerRequest(
+          request,
+          undefined,
+          new AbortController().signal,
+          'immutable'
+        )
+        // 5.4.2.1
+        requestList.push(requestObject)
+      }
+
+      // 5.4.3
+      promise.resolve(Object.freeze(requestList))
+    })
+
+    return promise.promise
+  }
+
+  /**
+   * @see https://w3c.github.io/ServiceWorker/#batch-cache-operations-algorithm
+   * @param {CacheBatchOperation[]} operations
+   * @returns {requestResponseList}
+   */
+  #batchCacheOperations (operations) {
+    // 1.
+    const cache = this.#relevantRequestResponseList
+
+    // 2.
+    const backupCache = [...cache]
+
+    // 3.
+    const addedItems = []
+
+    // 4.1
+    const resultList = []
+
+    try {
+      // 4.2
+      for (const operation of operations) {
+        // 4.2.1
+        if (operation.type !== 'delete' && operation.type !== 'put') {
+          throw webidl.errors.exception({
+            header: 'Cache.#batchCacheOperations',
+            message: 'operation type does not match "delete" or "put"'
+          })
+        }
+
+        // 4.2.2
+        if (operation.type === 'delete' && operation.response != null) {
+          throw webidl.errors.exception({
+            header: 'Cache.#batchCacheOperations',
+            message: 'delete operation should not have an associated response'
+          })
+        }
+
+        // 4.2.3
+        if (this.#queryCache(operation.request, operation.options, addedItems).length) {
+          throw new DOMException('???', 'InvalidStateError')
+        }
+
+        // 4.2.4
+        let requestResponses
+
+        // 4.2.5
+        if (operation.type === 'delete') {
+          // 4.2.5.1
+          requestResponses = this.#queryCache(operation.request, operation.options)
+
+          // TODO: the spec is wrong, this is needed to pass WPTs
+          if (requestResponses.length === 0) {
+            return []
+          }
+
+          // 4.2.5.2
+          for (const requestResponse of requestResponses) {
+            const idx = cache.indexOf(requestResponse)
+            assert(idx !== -1)
+
+            // 4.2.5.2.1
+            cache.splice(idx, 1)
+          }
+        } else if (operation.type === 'put') { // 4.2.6
+          // 4.2.6.1
+          if (operation.response == null) {
+            throw webidl.errors.exception({
+              header: 'Cache.#batchCacheOperations',
+              message: 'put operation should have an associated response'
+            })
+          }
+
+          // 4.2.6.2
+          const r = operation.request
+
+          // 4.2.6.3
+          if (!urlIsHttpHttpsScheme(r.url)) {
+            throw webidl.errors.exception({
+              header: 'Cache.#batchCacheOperations',
+              message: 'expected http or https scheme'
+            })
+          }
+
+          // 4.2.6.4
+          if (r.method !== 'GET') {
+            throw webidl.errors.exception({
+              header: 'Cache.#batchCacheOperations',
+              message: 'not get method'
+            })
+          }
+
+          // 4.2.6.5
+          if (operation.options != null) {
+            throw webidl.errors.exception({
+              header: 'Cache.#batchCacheOperations',
+              message: 'options must not be defined'
+            })
+          }
+
+          // 4.2.6.6
+          requestResponses = this.#queryCache(operation.request)
+
+          // 4.2.6.7
+          for (const requestResponse of requestResponses) {
+            const idx = cache.indexOf(requestResponse)
+            assert(idx !== -1)
+
+            // 4.2.6.7.1
+            cache.splice(idx, 1)
+          }
+
+          // 4.2.6.8
+          cache.push([operation.request, operation.response])
+
+          // 4.2.6.10
+          addedItems.push([operation.request, operation.response])
+        }
+
+        // 4.2.7
+        resultList.push([operation.request, operation.response])
+      }
+
+      // 4.3
+      return resultList
+    } catch (e) { // 5.
+      // 5.1
+      this.#relevantRequestResponseList.length = 0
+
+      // 5.2
+      this.#relevantRequestResponseList = backupCache
+
+      // 5.3
+      throw e
+    }
+  }
+
+  /**
+   * @see https://w3c.github.io/ServiceWorker/#query-cache
+   * @param {any} requestQuery
+   * @param {import('../../../types/cache').CacheQueryOptions} options
+   * @param {requestResponseList} targetStorage
+   * @returns {requestResponseList}
+   */
+  #queryCache (requestQuery, options, targetStorage) {
+    /** @type {requestResponseList} */
+    const resultList = []
+
+    const storage = targetStorage ?? this.#relevantRequestResponseList
+
+    for (const requestResponse of storage) {
+      const [cachedRequest, cachedResponse] = requestResponse
+      if (this.#requestMatchesCachedItem(requestQuery, cachedRequest, cachedResponse, options)) {
+        resultList.push(requestResponse)
+      }
+    }
+
+    return resultList
+  }
+
+  /**
+   * @see https://w3c.github.io/ServiceWorker/#request-matches-cached-item-algorithm
+   * @param {any} requestQuery
+   * @param {any} request
+   * @param {any | null} response
+   * @param {import('../../../types/cache').CacheQueryOptions | undefined} options
+   * @returns {boolean}
+   */
+  #requestMatchesCachedItem (requestQuery, request, response = null, options) {
+    // if (options?.ignoreMethod === false && request.method === 'GET') {
+    //   return false
+    // }
+
+    const queryURL = new URL(requestQuery.url)
+
+    const cachedURL = new URL(request.url)
+
+    if (options?.ignoreSearch) {
+      cachedURL.search = ''
+
+      queryURL.search = ''
+    }
+
+    if (!urlEquals(queryURL, cachedURL, true)) {
+      return false
+    }
+
+    if (
+      response == null ||
+      options?.ignoreVary ||
+      !response.headersList.contains('vary')
+    ) {
+      return true
+    }
+
+    const fieldValues = getFieldValues(response.headersList.get('vary'))
+
+    for (const fieldValue of fieldValues) {
+      if (fieldValue === '*') {
+        return false
+      }
+
+      const requestValue = request.headersList.get(fieldValue)
+      const queryValue = requestQuery.headersList.get(fieldValue)
+
+      // If one has the header and the other doesn't, or one has
+      // a different value than the other, return false
+      if (requestValue !== queryValue) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  #internalMatchAll (request, options, maxResponses = Infinity) {
+    // 1.
+    let r = null
+
+    // 2.
+    if (request !== undefined) {
+      if (webidl.is.Request(request)) {
+        // 2.1.1
+        r = getRequestState(request)
+
+        // 2.1.2
+        if (r.method !== 'GET' && !options.ignoreMethod) {
+          return []
+        }
+      } else if (typeof request === 'string') {
+        // 2.2.1
+        r = getRequestState(new Request(request))
+      }
+    }
+
+    // 5.
+    // 5.1
+    const responses = []
+
+    // 5.2
+    if (request === undefined) {
+      // 5.2.1
+      for (const requestResponse of this.#relevantRequestResponseList) {
+        responses.push(requestResponse[1])
+      }
+    } else { // 5.3
+      // 5.3.1
+      const requestResponses = this.#queryCache(r, options)
+
+      // 5.3.2
+      for (const requestResponse of requestResponses) {
+        responses.push(requestResponse[1])
+      }
+    }
+
+    // 5.4
+    // We don't implement CORs so we don't need to loop over the responses, yay!
+
+    // 5.5.1
+    const responseList = []
+
+    // 5.5.2
+    for (const response of responses) {
+      // 5.5.2.1
+      const responseObject = fromInnerResponse(cloneResponse(response), 'immutable')
+
+      responseList.push(responseObject)
+
+      if (responseList.length >= maxResponses) {
+        break
+      }
+    }
+
+    // 6.
+    return Object.freeze(responseList)
+  }
 }
 
-/**
- * @param {import('../../types/cache-interceptor.d.ts').default.CacheOptions} [opts]
- * @returns {import('../../types/dispatcher.d.ts').default.DispatcherComposeInterceptor}
- */
-module.exports = (opts = {}) => {
-  const {
-    store = new MemoryCacheStore(),
-    methods = ['GET'],
-    cacheByDefault = undefined,
-    type = 'shared',
-    origins = undefined
-  } = opts
+Object.defineProperties(Cache.prototype, {
+  [Symbol.toStringTag]: {
+    value: 'Cache',
+    configurable: true
+  },
+  match: kEnumerableProperty,
+  matchAll: kEnumerableProperty,
+  add: kEnumerableProperty,
+  addAll: kEnumerableProperty,
+  put: kEnumerableProperty,
+  delete: kEnumerableProperty,
+  keys: kEnumerableProperty
+})
 
-  if (typeof opts !== 'object' || opts === null) {
-    throw new TypeError(`expected type of opts to be an Object, got ${opts === null ? 'null' : typeof opts}`)
+const cacheQueryOptionConverters = [
+  {
+    key: 'ignoreSearch',
+    converter: webidl.converters.boolean,
+    defaultValue: () => false
+  },
+  {
+    key: 'ignoreMethod',
+    converter: webidl.converters.boolean,
+    defaultValue: () => false
+  },
+  {
+    key: 'ignoreVary',
+    converter: webidl.converters.boolean,
+    defaultValue: () => false
   }
+]
 
-  assertCacheStore(store, 'opts.store')
-  assertCacheMethods(methods, 'opts.methods')
-  assertCacheOrigins(origins, 'opts.origins')
+webidl.converters.CacheQueryOptions = webidl.dictionaryConverter(cacheQueryOptionConverters)
 
-  if (typeof cacheByDefault !== 'undefined' && typeof cacheByDefault !== 'number') {
-    throw new TypeError(`expected opts.cacheByDefault to be number or undefined, got ${typeof cacheByDefault}`)
+webidl.converters.MultiCacheQueryOptions = webidl.dictionaryConverter([
+  ...cacheQueryOptionConverters,
+  {
+    key: 'cacheName',
+    converter: webidl.converters.DOMString
   }
+])
 
-  if (typeof type !== 'undefined' && type !== 'shared' && type !== 'private') {
-    throw new TypeError(`expected opts.type to be shared, private, or undefined, got ${typeof type}`)
-  }
+webidl.converters.Response = webidl.interfaceConverter(
+  webidl.is.Response,
+  'Response'
+)
 
-  const globalOpts = {
-    store,
-    methods,
-    cacheByDefault,
-    type
-  }
+webidl.converters['sequence<RequestInfo>'] = webidl.sequenceConverter(
+  webidl.converters.RequestInfo
+)
 
-  const safeMethodsToNotCache = []
-  for (let i = 0; i < util.safeHTTPMethods.length; i++) {
-    const method = util.safeHTTPMethods[i]
-    if (!arrayIncludes(methods, method)) {
-      safeMethodsToNotCache.push(method)
-    }
-  }
-
-  return dispatch => {
-    return (opts, handler) => {
-      if (!opts.origin || arrayIncludes(safeMethodsToNotCache, opts.method)) {
-        // Not a method we want to cache or we don't have the origin, skip
-        return dispatch(opts, handler)
-      }
-
-      // Check if origin is in whitelist
-      if (origins !== undefined) {
-        const requestOrigin = opts.origin.toString().toLowerCase()
-        let isAllowed = false
-
-        for (let i = 0; i < origins.length; i++) {
-          const allowed = origins[i]
-          if (typeof allowed === 'string') {
-            if (allowed.toLowerCase() === requestOrigin) {
-              isAllowed = true
-              break
-            }
-          } else if (allowed.test(requestOrigin)) {
-            isAllowed = true
-            break
-          }
-        }
-
-        if (!isAllowed) {
-          return dispatch(opts, handler)
-        }
-      }
-
-      opts = {
-        ...opts,
-        headers: normalizeHeaders(opts)
-      }
-
-      const reqCacheControl = opts.headers?.['cache-control']
-        ? parseCacheControlHeader(opts.headers['cache-control'])
-        : hasPragmaNoCache(opts.headers)
-          ? { 'no-cache': true }
-          : undefined
-
-      if (reqCacheControl?.['no-store']) {
-        return dispatch(opts, handler)
-      }
-
-      /**
-       * @type {import('../../types/cache-interceptor.d.ts').default.CacheKey}
-       */
-      const cacheKey = makeCacheKey(opts)
-
-      if (!arrayIncludes(util.safeHTTPMethods, opts.method)) {
-        return dispatch(opts, new CacheHandler(globalOpts, cacheKey, handler))
-      }
-
-      const result = store.get(cacheKey)
-
-      if (result && typeof result.then === 'function') {
-        return result
-          .then(result => handleResult(dispatch,
-            globalOpts,
-            cacheKey,
-            handler,
-            opts,
-            reqCacheControl,
-            result
-          ))
-      } else {
-        return handleResult(
-          dispatch,
-          globalOpts,
-          cacheKey,
-          handler,
-          opts,
-          reqCacheControl,
-          result
-        )
-      }
-    }
-  }
+module.exports = {
+  Cache
 }
