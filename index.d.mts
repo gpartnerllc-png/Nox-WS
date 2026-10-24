@@ -1,33 +1,22 @@
-import * as unenv from 'unenv';
-import { Preset } from 'unenv';
+import { ParseOptions, StackFrame } from './lite.mjs';
+export { StackFrameLite, extractLocation } from './lite.mjs';
 
 /**
- * Creates the Cloudflare preset for the given compatibility date and compatibility flags
- *
- * @param compatibilityDate workerd compatibility date
- * @param compatibilityFlags workerd compatibility flags
- * @returns The cloudflare preset
+ * Port from https://github.com/stacktracejs/error-stack-parser
  */
-declare function getCloudflarePreset({ compatibilityDate, compatibilityFlags, }: Partial<Compatibility>): Preset;
-type Compatibility = {
-    /** The compatibility date to be used when computing overrides. */
-    compatibilityDate: string;
-    /** The compatibility flags to be used when computing overrides. */
-    compatibilityFlags: string[];
-};
 
 /**
- * List of the Node.js built-in modules without the `node:` prefix.
+ * Given an Error object, extract the most information from it.
  *
- * Generated using `module.builtinModules` in Node.js 24.11.1
- *
- * Note: All new modules are expected to use the `node:` prefix.
- * See https://github.com/nodejs/node/blob/main/doc/contributing/collaborator-guide.md#introducing-new-modules
+ * @param {Error} error object
+ * @return {Array} of StackFrames
  */
-declare const nonPrefixedNodeModules: string[];
-/**
- * @deprecated Use getCloudflarePreset instead.
- */
-declare const cloudflare: unenv.Preset;
+declare function parse(error: Error, options?: ParseOptions): StackFrame[];
+declare function parseV8OrIE(error: Error): StackFrame[];
+declare function parseFFOrSafari(error: Error): StackFrame[];
+declare function parseOpera(e: Error): StackFrame[];
+declare function parseOpera9(e: Error): StackFrame[];
+declare function parseOpera10(e: Error): StackFrame[];
+declare function parseOpera11(error: Error): StackFrame[];
 
-export { cloudflare, getCloudflarePreset, nonPrefixedNodeModules };
+export { ParseOptions, StackFrame, parse, parseFFOrSafari, parseOpera, parseOpera10, parseOpera11, parseOpera9, parseV8OrIE };

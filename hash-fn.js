@@ -1,19 +1,17 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const hash_fn_1 = require("../base/hash-fn");
-const hash_1 = require("./hash");
-const wasm_1 = require("./wasm");
-const textEncoder = new TextEncoder();
+const blake3_js_1 = require("../../dist/wasm/nodejs/blake3_js");
 /**
  * @hidden
  */
-exports.normalizeInput = (input) => hash_fn_1.inputToArray(typeof input === 'string' ? textEncoder.encode(input) : input);
+exports.normalizeInput = (input, encoding) => hash_fn_1.inputToArray(typeof input === 'string' ? Buffer.from(input, encoding) : input);
 /**
- * Returns a blake3 hash of the input.
+ * Returns a blake3 hash of the input, returning the binary hash data.
  */
 function hash(input, { length = hash_fn_1.defaultHashLength } = {}) {
-    const result = new hash_1.Hash(length);
-    wasm_1.getWasm().hash(exports.normalizeInput(input), result);
+    const result = Buffer.alloc(length);
+    blake3_js_1.hash(exports.normalizeInput(input), result);
     return result;
 }
 exports.hash = hash;
@@ -23,9 +21,9 @@ exports.hash = hash;
  * for more information.
  */
 function deriveKey(context, material, { length = hash_fn_1.defaultHashLength } = {}) {
-    const derive = wasm_1.getWasm().create_derive(context);
+    const derive = blake3_js_1.create_derive(context);
     derive.update(exports.normalizeInput(material));
-    const result = new hash_1.Hash(length);
+    const result = Buffer.alloc(length);
     derive.digest(result);
     return result;
 }
@@ -37,9 +35,9 @@ function keyedHash(key, input, { length = hash_fn_1.defaultHashLength } = {}) {
     if (key.length !== 32) {
         throw new Error(`key provided to keyedHash must be 32 bytes, got ${key.length}`);
     }
-    const derive = wasm_1.getWasm().create_keyed(key);
+    const derive = blake3_js_1.create_keyed(key);
     derive.update(exports.normalizeInput(input));
-    const result = new hash_1.Hash(length);
+    const result = Buffer.alloc(length);
     derive.digest(result);
     return result;
 }

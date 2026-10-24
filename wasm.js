@@ -1,20 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-let wasm;
+let w;
 /**
- * Gets the webassembly module provided in provideWasm.
+ * Lazyily get the WebAssembly module. Used to avoid unnecessarily importing
+ * the wasm when extending the WebAssembly node code for native bindings.
  */
 exports.getWasm = () => {
-    if (!wasm) {
-        throw new Error('BLAKE3 webassembly not loaded. Please import the module via `blake3/browser` or `blake3/browser-async`');
+    if (!w) {
+        w = require('../../dist/wasm/nodejs/blake3_js');
     }
-    return wasm;
-};
-/**
- * Sets the webassembly module used for the browser build. This indirection is
- * needed to provide compatibility between the "browser" and "browser-async" modes.
- */
-exports.provideWasm = (w) => {
-    wasm = w;
+    return w;
 };
 //# sourceMappingURL=wasm.js.map

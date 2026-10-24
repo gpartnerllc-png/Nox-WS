@@ -1,844 +1,232 @@
-# is
+<div align="center">
+  <img src="shots/logo.png" alt="kleur" height="120" />
+</div>
 
-> Type check values
+<div align="center">
+  <a href="https://npmjs.org/package/kleur">
+    <img src="https://badgen.now.sh/npm/v/kleur" alt="version" />
+  </a>
+  <a href="https://github.com/lukeed/kleur/actions?query=workflow%3ACI">
+    <img src="https://github.com/lukeed/kleur/workflows/CI/badge.svg?event=push" alt="CI" />
+  </a>
+  <a href="https://npmjs.org/package/kleur">
+    <img src="https://badgen.now.sh/npm/dm/kleur" alt="downloads" />
+  </a>
+  <a href="https://packagephobia.now.sh/result?p=kleur">
+    <img src="https://packagephobia.now.sh/badge?p=kleur" alt="install size" />
+  </a>
+</div>
 
-For example, `is.string('🦄') //=> true`
+<div align="center">The fastest Node.js library for formatting terminal text with ANSI colors~!</div>
 
-<img src="header.gif" width="182" align="right">
+## Features
 
-## Highlights
+* No dependencies
+* Super [lightweight](#load-time) & [performant](#performance)
+* Supports [nested](#nested-methods) & [chained](#chained-methods) colors
+* No `String.prototype` modifications
+* Conditional [color support](#conditional-support)
+* [Fully treeshakable](#individual-colors)
+* Familiar [API](#api)
 
-- Written in TypeScript
-- [Extensive use of type guards](#type-guards)
-- [Supports type assertions](#type-assertions)
-- [Aware of generic type parameters](#generic-type-parameters) (use with caution)
-- Actively maintained
-- ![Millions of downloads per week](https://img.shields.io/npm/dw/@sindresorhus/is)
+---
+
+As of `v3.0` the Chalk-style syntax (magical getter) is no longer used.<br>Please visit [History](#history) for migration paths supporting that syntax.
+
+---
+
 
 ## Install
 
-```sh
-npm install @sindresorhus/is
 ```
+$ npm install --save kleur
+```
+
 
 ## Usage
 
 ```js
-import is from '@sindresorhus/is';
+import kleur from 'kleur';
 
-is('🦄');
-//=> 'string'
+// basic usage
+kleur.red('red text');
 
-is(new Map());
-//=> 'Map'
+// chained methods
+kleur.blue().bold().underline('howdy partner');
 
-is.number(6);
-//=> true
+// nested methods
+kleur.bold(`${ white().bgRed('[ERROR]') } ${ kleur.red().italic('Something happened')}`);
 ```
 
-[Assertions](#type-assertions) perform the same type checks, but throw an error if the type does not match.
+### Chained Methods
 
 ```js
-import {assert} from '@sindresorhus/is';
+const { bold, green } = require('kleur');
 
-assert.string(2);
-//=> Error: Expected value which is `string`, received value of type `number`.
+console.log(bold().red('this is a bold red message'));
+console.log(bold().italic('this is a bold italicized message'));
+console.log(bold().yellow().bgRed().italic('this is a bold yellow italicized message'));
+console.log(green().bold().underline('this is a bold green underlined message'));
 ```
 
-Assertions (except `assertAll` and `assertAny`) also support an optional custom error message.
+<img src="shots/1.png" width="300" />
+
+### Nested Methods
 
 ```js
-import {assert} from '@sindresorhus/is';
+const { yellow, red, cyan } = require('kleur');
 
-assert.nonEmptyString(process.env.API_URL, 'The API_URL environment variable is required.');
-//=> Error: The API_URL environment variable is required.
+console.log(yellow(`foo ${red().bold('red')} bar ${cyan('cyan')} baz`));
+console.log(yellow('foo ' + red().bold('red') + ' bar ' + cyan('cyan') + ' baz'));
 ```
 
-And with TypeScript:
+<img src="shots/2.png" width="300" />
 
-```ts
-import {assert} from '@sindresorhus/is';
 
-assert.string(foo);
-// `foo` is now typed as a `string`.
-```
+### Conditional Support
 
-### Named exports
+Toggle color support as needed; `kleur` includes simple auto-detection which may not cover all cases.
 
-Named exports allow tooling to perform tree-shaking, potentially reducing bundle size by including only code from the methods that are used.
-
-Every method listed below is available as a named export. Each method is prefixed by either `is` or `assert` depending on usage.
-
-For example:
+> **Note:** Both `kleur` and `kleur/colors` share the same detection logic.
 
 ```js
-import {assertNull, isUndefined} from '@sindresorhus/is';
+import kleur from 'kleur';
+
+// manually disable
+kleur.enabled = false;
+
+// or use another library to detect support
+kleur.enabled = require('color-support').level > 0;
+
+console.log(kleur.red('I will only be colored red if the terminal supports colors'));
+```
+
+> **Important:** <br>Colors will be disabled automatically in non [TTY contexts](https://nodejs.org/api/process.html#process_a_note_on_process_i_o). For example, spawning another process or piping output into another process will disable colorization automatically. To force colors in your piped output, you may do so with the `FORCE_COLOR=1` environment variable:
+
+```sh
+$ node app.js #=> COLORS
+$ node app.js > log.txt  #=> NO COLORS
+$ FORCE_COLOR=1 node app.js > log.txt #=> COLORS
+$ FORCE_COLOR=0 node app.js > log.txt #=> NO COLORS
 ```
 
 ## API
 
-### is(value)
+Any `kleur` method returns a `String` when invoked with input; otherwise chaining is expected.
 
-Returns the type of `value`.
+> It's up to the developer to pass the output to destinations like `console.log`, `process.stdout.write`, etc.
 
-Primitives are lowercase and object types are camelcase.
+The methods below are grouped by type for legibility purposes only. They each can be [chained](#chained-methods) or [nested](#nested-methods) with one another.
 
-Example:
+***Colors:***
+> black &mdash; red &mdash; green &mdash; yellow &mdash; blue &mdash; magenta &mdash; cyan &mdash; white &mdash; gray &mdash; grey
 
-- `'undefined'`
-- `'null'`
-- `'string'`
-- `'symbol'`
-- `'Array'`
-- `'Function'`
-- `'Object'`
+***Backgrounds:***
+> bgBlack &mdash; bgRed &mdash; bgGreen &mdash; bgYellow &mdash; bgBlue &mdash; bgMagenta &mdash; bgCyan &mdash; bgWhite
 
-This method is also exported as `detect`. You can import it like this:
+***Modifiers:***
+> reset &mdash; bold &mdash; dim &mdash; italic* &mdash; underline &mdash; inverse &mdash; hidden &mdash; strikethrough*
 
-```js
-import {detect} from '@sindresorhus/is';
-```
+<sup>* <em>Not widely supported</em></sup>
 
-Note: It will throw an error if you try to feed it object-wrapped primitives, as that's a bad practice. For example `new String('foo')`.
 
-### is.{method}
+## Individual Colors
 
-All the below methods accept a value and return a boolean for whether the value is of the desired type.
+When you only need a few colors, it doesn't make sense to import _all_ of `kleur` because, as small as it is, `kleur` is not treeshakeable, and so most of its code will be doing nothing. In order to fix this, you can import from the `kleur/colors` submodule which _fully_ supports tree-shaking.
 
-#### Primitives
-
-##### .undefined(value)
-##### .null(value)
-
-##### .string(value)
-##### .number(value)
-
-Note: `is.number(NaN)` returns `false`. This intentionally deviates from `typeof` behavior to increase user-friendliness of `is` type checks.
-
-##### .boolean(value)
-##### .symbol(value)
-##### .bigint(value)
-
-#### Built-in types
-
-##### .array(value, assertion?)
-
-Returns true if `value` is an array and all of its items match the assertion (if provided).
+The caveat with this approach is that color functions **are not** chainable~!<br>Each function receives and colorizes its input. You may combine colors, backgrounds, and modifiers by nesting function calls within other functions.
 
 ```js
-is.array(value); // Validate `value` is an array.
-is.array(value, is.number); // Validate `value` is an array and all of its items are numbers.
+// or: import * as kleur from 'kleur/colors';
+import { red, underline, bgWhite } from 'kleur/colors';
+
+red('red text');
+//~> kleur.red('red text');
+
+underline(red('red underlined text'));
+//~> kleur.underline().red('red underlined text');
+
+bgWhite(underline(red('red underlined text w/ white background')));
+//~> kleur.bgWhite().underline().red('red underlined text w/ white background');
 ```
 
-##### .function(value)
+> **Note:** All the same [colors, backgrounds, and modifiers](#api) are available.
 
-##### .buffer(value)
+***Conditional Support***
 
-> [!NOTE]
-> [Prefer using `Uint8Array` instead of `Buffer`.](https://sindresorhus.com/blog/goodbye-nodejs-buffer)
+The `kleur/colors` submodule also allows you to toggle color support, as needed.<br>
+It includes the same initial assumptions as `kleur`, in an attempt to have colors enabled by default.
 
-##### .blob(value)
-##### .object(value)
-
-Keep in mind that [functions are objects too](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions).
-
-##### .numericString(value)
-
-Returns `true` for a string that represents a number satisfying `is.number`, for example, `'42'` and `'-8.3'`.
-
-Note: `'NaN'` returns `false`, but `'Infinity'` and `'-Infinity'` return `true`.
-
-##### .regExp(value)
-##### .date(value)
-##### .error(value)
-##### .nativePromise(value)
-##### .promise(value)
-
-Returns `true` for any object with a `.then()` and `.catch()` method. Prefer this one over `.nativePromise()` as you usually want to allow userland promise implementations too.
-
-##### .generator(value)
-
-Returns `true` for any object that implements its own `.next()` and `.throw()` methods and has a function definition for `Symbol.iterator`.
-
-##### .generatorFunction(value)
-
-##### .asyncFunction(value)
-
-Returns `true` for any `async` function that can be called with the `await` operator.
+Unlike `kleur`, this setting exists as `kleur.$.enabled` instead of `kleur.enabled`:
 
 ```js
-is.asyncFunction(async () => {});
-//=> true
+import * as kleur from 'kleur/colors';
+// or: import { $, red } from 'kleur/colors';
 
-is.asyncFunction(() => {});
-//=> false
+// manually disabled
+kleur.$.enabled = false;
+
+// or use another library to detect support
+kleur.$.enabled = require('color-support').level > 0;
+
+console.log(red('I will only be colored red if the terminal supports colors'));
 ```
 
-##### .asyncGenerator(value)
+
+## Benchmarks
+
+> Using Node v10.13.0
+
+### Load time
+
+```
+chalk        :: 5.303ms
+kleur        :: 0.488ms
+kleur/colors :: 0.369ms
+ansi-colors  :: 1.504ms
+```
+
+### Performance
+
+```
+# All Colors
+  ansi-colors      x 177,625 ops/sec ±1.47% (92 runs sampled)
+  chalk            x 611,907 ops/sec ±0.20% (92 runs sampled)
+  kleur            x 742,509 ops/sec ±1.47% (93 runs sampled)
+  kleur/colors     x 881,742 ops/sec ±0.19% (98 runs sampled)
+
+# Stacked colors
+  ansi-colors      x  23,331 ops/sec ±1.81% (94 runs sampled)
+  chalk            x 337,178 ops/sec ±0.20% (98 runs sampled)
+  kleur            x  78,299 ops/sec ±1.01% (97 runs sampled)
+  kleur/colors     x 104,431 ops/sec ±0.22% (97 runs sampled)
+
+# Nested colors
+  ansi-colors      x  67,181 ops/sec ±1.15% (92 runs sampled)
+  chalk            x 116,361 ops/sec ±0.63% (94 runs sampled)
+  kleur            x 139,514 ops/sec ±0.76% (95 runs sampled)
+  kleur/colors     x 145,716 ops/sec ±0.97% (97 runs sampled)
+```
+
+
+## History
+
+This project originally forked [`ansi-colors`](https://github.com/doowb/ansi-colors).
+
+Beginning with `kleur@3.0`, the Chalk-style syntax (magical getter) has been replaced with function calls per key:
 
 ```js
-is.asyncGenerator(
-	(async function * () {
-		yield 4;
-	})()
-);
-//=> true
+// Old:
+c.red.bold.underline('old');
 
-is.asyncGenerator(
-	(function * () {
-		yield 4;
-	})()
-);
-//=> false
+// New:
+c.red().bold().underline('new');
 ```
+> <sup><em>As I work more with Rust, the newer syntax feels so much better & more natural!</em></sup>
 
-##### .asyncGeneratorFunction(value)
+If you prefer the old syntax, you may migrate to `ansi-colors` or newer `chalk` releases.<br>Versions below `kleur@3.0` have been officially deprecated.
 
-```js
-is.asyncGeneratorFunction(async function * () {
-	yield 4;
-});
-//=> true
 
-is.asyncGeneratorFunction(function * () {
-	yield 4;
-});
-//=> false
-```
+## License
 
-##### .boundFunction(value)
-
-Returns `true` for any `bound` function.
-
-```js
-is.boundFunction(() => {});
-//=> true
-
-is.boundFunction(function () {}.bind(null));
-//=> true
-
-is.boundFunction(function () {});
-//=> false
-```
-
-##### .map(value)
-##### .set(value)
-##### .weakMap(value)
-##### .weakSet(value)
-##### .weakRef(value)
-
-#### Typed arrays
-
-##### .int8Array(value)
-##### .uint8Array(value)
-##### .uint8ClampedArray(value)
-##### .int16Array(value)
-##### .uint16Array(value)
-##### .int32Array(value)
-##### .uint32Array(value)
-##### .float32Array(value)
-##### .float64Array(value)
-##### .bigInt64Array(value)
-##### .bigUint64Array(value)
-
-#### Structured data
-
-##### .arrayBuffer(value)
-##### .sharedArrayBuffer(value)
-##### .dataView(value)
-
-##### .enumCase(value, enum)
-
-TypeScript-only. Returns `true` if `value` is a member of `enum`.
-
-```ts
-enum Direction {
-	Ascending = 'ascending',
-	Descending = 'descending'
-}
-
-is.enumCase('ascending', Direction);
-//=> true
-
-is.enumCase('other', Direction);
-//=> false
-```
-
-#### Emptiness
-
-##### .emptyString(value)
-
-Returns `true` if the value is a `string` and the `.length` is 0.
-
-##### .emptyStringOrWhitespace(value)
-
-Returns `true` if `is.emptyString(value)` or if it's a `string` that is all whitespace.
-
-##### .nonEmptyString(value)
-
-Returns `true` if the value is a `string` and the `.length` is more than 0.
-
-##### .nonEmptyStringAndNotWhitespace(value)
-
-Returns `true` if the value is a `string` that is not empty and not whitespace.
-
-```js
-const values = ['property1', '', null, 'property2', '    ', undefined];
-
-values.filter(is.nonEmptyStringAndNotWhitespace);
-//=> ['property1', 'property2']
-```
-
-##### .emptyArray(value)
-
-Returns `true` if the value is an `Array` and the `.length` is 0.
-
-##### .nonEmptyArray(value)
-
-Returns `true` if the value is an `Array` and the `.length` is more than 0.
-
-##### .emptyObject(value)
-
-Returns `true` if the value is an `Object` and `Object.keys(value).length` is 0.
-
-Please note that `Object.keys` returns only own enumerable properties. Hence something like this can happen:
-
-```js
-const object1 = {};
-
-Object.defineProperty(object1, 'property1', {
-	value: 42,
-	writable: true,
-	enumerable: false,
-	configurable: true
-});
-
-is.emptyObject(object1);
-//=> true
-```
-
-##### .nonEmptyObject(value)
-
-Returns `true` if the value is an `Object` and `Object.keys(value).length` is more than 0.
-
-##### .emptySet(value)
-
-Returns `true` if the value is a `Set` and the `.size` is 0.
-
-##### .nonEmptySet(Value)
-
-Returns `true` if the value is a `Set` and the `.size` is more than 0.
-
-##### .emptyMap(value)
-
-Returns `true` if the value is a `Map` and the `.size` is 0.
-
-##### .nonEmptyMap(value)
-
-Returns `true` if the value is a `Map` and the `.size` is more than 0.
-
-#### Miscellaneous
-
-##### .directInstanceOf(value, class)
-
-Returns `true` if `value` is a direct instance of `class`.
-
-```js
-is.directInstanceOf(new Error(), Error);
-//=> true
-
-class UnicornError extends Error {}
-
-is.directInstanceOf(new UnicornError(), Error);
-//=> false
-```
-
-##### .urlInstance(value)
-
-Returns `true` if `value` is an instance of the [`URL` class](https://developer.mozilla.org/en-US/docs/Web/API/URL).
-
-```js
-const url = new URL('https://example.com');
-
-is.urlInstance(url);
-//=> true
-```
-
-##### .urlString(value)
-
-Returns `true` if `value` is a URL string.
-
-Note: this only does basic checking using the [`URL` class](https://developer.mozilla.org/en-US/docs/Web/API/URL) constructor.
-
-```js
-const url = 'https://example.com';
-
-is.urlString(url);
-//=> true
-
-is.urlString(new URL(url));
-//=> false
-```
-
-##### .truthy(value)
-
-Returns `true` for all values that evaluate to true in a boolean context:
-
-```js
-is.truthy('🦄');
-//=> true
-
-is.truthy(undefined);
-//=> false
-```
-
-##### .falsy(value)
-
-Returns `true` if `value` is one of: `false`, `0`, `''`, `null`, `undefined`, `NaN`.
-
-##### .nan(value)
-##### .nullOrUndefined(value)
-##### .primitive(value)
-
-JavaScript primitives are as follows:
-
-- `null`
-- `undefined`
-- `string`
-- `number`
-- `boolean`
-- `symbol`
-- `bigint`
-
-##### .integer(value)
-
-##### .safeInteger(value)
-
-Returns `true` if `value` is a [safe integer](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/isSafeInteger).
-
-##### .plainObject(value)
-
-An object is plain if it's created by either `{}`, `new Object()`, or `Object.create(null)`.
-
-##### .iterable(value)
-##### .asyncIterable(value)
-##### .class(value)
-
-Returns `true` if the value is a class constructor.
-
-##### .typedArray(value)
-
-##### .arrayLike(value)
-
-A `value` is array-like if it is not a function and has a `value.length` that is a safe integer greater than or equal to 0.
-
-```js
-is.arrayLike(document.forms);
-//=> true
-
-function foo() {
-	is.arrayLike(arguments);
-	//=> true
-}
-foo();
-```
-
-##### .tupleLike(value, guards)
-
-A `value` is tuple-like if it matches the provided `guards` array both in `.length` and in types.
-
-```js
-is.tupleLike([1], [is.number]);
-//=> true
-```
-
-```js
-function foo() {
-	const tuple = [1, '2', true];
-	if (is.tupleLike(tuple, [is.number, is.string, is.boolean])) {
-		tuple // [number, string, boolean]
-	}
-}
-
-foo();
-```
-
-##### .positiveNumber(value)
-
-Check if `value` is a number and is more than 0.
-
-##### .negativeNumber(value)
-
-Check if `value` is a number and is less than 0.
-
-##### .inRange(value, range)
-
-Check if `value` (number) is in the given `range`. The range is an array of two values, lower bound and upper bound, in no specific order.
-
-```js
-is.inRange(3, [0, 5]);
-is.inRange(3, [5, 0]);
-is.inRange(0, [-2, 2]);
-```
-
-##### .inRange(value, upperBound)
-
-Check if `value` (number) is in the range of `0` to `upperBound`.
-
-```js
-is.inRange(3, 10);
-```
-
-##### .htmlElement(value)
-
-Returns `true` if `value` is an [HTMLElement](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement).
-
-##### .nodeStream(value)
-
-Returns `true` if `value` is a Node.js [stream](https://nodejs.org/api/stream.html).
-
-```js
-import fs from 'node:fs';
-
-is.nodeStream(fs.createReadStream('unicorn.png'));
-//=> true
-```
-
-##### .observable(value)
-
-Returns `true` if `value` is an `Observable`.
-
-```js
-import {Observable} from 'rxjs';
-
-is.observable(new Observable());
-//=> true
-```
-
-##### .infinite(value)
-
-Check if `value` is `Infinity` or `-Infinity`.
-
-##### .evenInteger(value)
-
-Returns `true` if `value` is an even integer.
-
-##### .oddInteger(value)
-
-Returns `true` if `value` is an odd integer.
-
-##### .propertyKey(value)
-
-Returns `true` if `value` can be used as an object property key (either `string`, `number`, or `symbol`).
-
-##### .formData(value)
-
-Returns `true` if `value` is an instance of the [`FormData` class](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
-
-```js
-const data = new FormData();
-
-is.formData(data);
-//=> true
-```
-
-##### .urlSearchParams(value)
-
-Returns `true` if `value` is an instance of the [`URLSearchParams` class](https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams).
-
-```js
-const searchParams = new URLSearchParams();
-
-is.urlSearchParams(searchParams);
-//=> true
-```
-
-##### .any(predicate | predicate[], ...values)
-
-Using a single `predicate` argument, returns `true` if **any** of the input `values` returns true in the `predicate`:
-
-```js
-is.any(is.string, {}, true, '🦄');
-//=> true
-
-is.any(is.boolean, 'unicorns', [], new Map());
-//=> false
-```
-
-Using an array of `predicate[]`, returns `true` if **any** of the input `values` returns true for **any** of the `predicates` provided in an array:
-
-```js
-is.any([is.string, is.number], {}, true, '🦄');
-//=> true
-
-is.any([is.boolean, is.number], 'unicorns', [], new Map());
-//=> false
-```
-
-##### .any(predicate[])
-
-Using an array of `predicate[]` without values, returns a combined type guard that checks if a value matches **any** of the predicates:
-
-```js
-const isStringOrNumber = is.any([is.string, is.number]);
-
-isStringOrNumber('hello');
-//=> true
-
-isStringOrNumber(123);
-//=> true
-
-isStringOrNumber(true);
-//=> false
-```
-
-This is useful for composing with other methods like `is.optional`:
-
-```js
-is.optional(value, is.any([is.string, is.number]));
-```
-
-An empty predicate array currently returns a predicate that always returns `false`. This will throw in the next major release.
-
-##### .all(predicate, ...values)
-
-Returns `true` if **all** of the input `values` returns true in the `predicate`:
-
-```js
-is.all(is.object, {}, new Map(), new Set());
-//=> true
-
-is.all(is.string, '🦄', [], 'unicorns');
-//=> false
-```
-
-##### .all(predicate[])
-
-Using an array of `predicate[]` without values, returns a combined type guard that checks if a value matches **all** of the predicates:
-
-```js
-const isArrayAndNonEmpty = is.all([is.array, is.nonEmptyArray]);
-
-isArrayAndNonEmpty(['hello']);
-//=> true
-
-isArrayAndNonEmpty([]);
-//=> false
-```
-
-This is useful for composing with other methods like `is.optional`:
-
-```js
-is.optional(value, is.all([is.object, is.plainObject]));
-```
-
-An empty predicate array currently returns a predicate that always returns `true`. This will throw in the next major release.
-
-##### .optional(value, predicate)
-
-Returns `true` if `value` is `undefined` or satisfies the given `predicate`.
-
-```js
-is.optional(undefined, is.string);
-//=> true
-
-is.optional('🦄', is.string);
-//=> true
-
-is.optional(123, is.string);
-//=> false
-```
-
-##### .validDate(value)
-
-Returns `true` if the value is a valid date.
-
-All [`Date`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/Date) objects have an internal timestamp value which is the number of milliseconds since the [Unix epoch](https://developer.mozilla.org/en-US/docs/Glossary/Unix_time). When a new `Date` is constructed with bad inputs, no error is thrown. Instead, a new `Date` object is returned. But the internal timestamp value is set to `NaN`, which is an `'Invalid Date'`. Bad inputs can be an non-parsable date string, a non-numeric value or a number that is outside of the expected range for a date value.
-
-```js
-const valid = new Date('2000-01-01');
-
-is.date(valid);
-//=> true
-valid.getTime();
-//=> 946684800000
-valid.toUTCString();
-//=> 'Sat, 01 Jan 2000 00:00:00 GMT'
-is.validDate(valid);
-//=> true
-
-const invalid = new Date('Not a parsable date string');
-
-is.date(invalid);
-//=> true
-invalid.getTime();
-//=> NaN
-invalid.toUTCString();
-//=> 'Invalid Date'
-is.validDate(invalid);
-//=> false
-```
-
-##### .validLength(value)
-
-Returns `true` if the value is a safe integer that is greater than or equal to zero.
-
-This can be useful to confirm that a value is a valid count of something, ie. 0 or more.
-
-##### .whitespaceString(value)
-
-Returns `true` if the value is a string with only whitespace characters.
-
-## Type guards
-
-When using `is` together with TypeScript, [type guards](http://www.typescriptlang.org/docs/handbook/advanced-types.html#type-guards-and-differentiating-types) are being used extensively to infer the correct type inside if-else statements.
-
-```ts
-import is from '@sindresorhus/is';
-
-const padLeft = (value: string, padding: string | number) => {
-	if (is.number(padding)) {
-		// `padding` is typed as `number`
-		return Array(padding + 1).join(' ') + value;
-	}
-
-	if (is.string(padding)) {
-		// `padding` is typed as `string`
-		return padding + value;
-	}
-
-	throw new TypeError(`Expected 'padding' to be of type 'string' or 'number', got '${is(padding)}'.`);
-}
-
-padLeft('🦄', 3);
-//=> '   🦄'
-
-padLeft('🦄', '🌈');
-//=> '🌈🦄'
-```
-
-## Type assertions
-
-The type guards are also available as [type assertions](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-3-7.html#assertion-functions), which throw an error for unexpected types. It is a convenient one-line version of the often repetitive "if-not-expected-type-throw" pattern.
-
-```ts
-import {assert} from '@sindresorhus/is';
-
-const handleMovieRatingApiResponse = (response: unknown) => {
-	assert.plainObject(response);
-	// `response` is now typed as a plain `object` with `unknown` properties.
-
-	assert.number(response.rating);
-	// `response.rating` is now typed as a `number`.
-
-	assert.string(response.title);
-	// `response.title` is now typed as a `string`.
-
-	return `${response.title} (${response.rating * 10})`;
-};
-
-handleMovieRatingApiResponse({rating: 0.87, title: 'The Matrix'});
-//=> 'The Matrix (8.7)'
-
-// This throws an error.
-handleMovieRatingApiResponse({rating: '🦄'});
-```
-
-### Optional assertion
-
-Asserts that `value` is `undefined` or satisfies the provided `assertion`.
-
-```ts
-import {assert} from '@sindresorhus/is';
-
-assert.optional(undefined, assert.string);
-// Passes without throwing
-
-assert.optional('🦄', assert.string);
-// Passes without throwing
-
-assert.optional(123, assert.string);
-// Throws: Expected value which is `string`, received value of type `number`
-```
-
-## Generic type parameters
-
-The type guards and type assertions are aware of [generic type parameters](https://www.typescriptlang.org/docs/handbook/generics.html), such as `Promise<T>` and `Map<Key, Value>`. The default is `unknown` for most cases, since `is` cannot check them at runtime. If the generic type is known at compile-time, either implicitly (inferred) or explicitly (provided), `is` propagates the type so it can be used later.
-
-Use generic type parameters with caution. They are only checked by the TypeScript compiler, and not checked by `is` at runtime. This can lead to unexpected behavior, where the generic type is _assumed_ at compile-time, but actually is something completely different at runtime. It is best to use `unknown` (default) and type-check the value of the generic type parameter at runtime with `is` or `assert`.
-
-```ts
-import {assert} from '@sindresorhus/is';
-
-async function badNumberAssumption(input: unknown) {
-	// Bad assumption about the generic type parameter fools the compile-time type system.
-	assert.promise<number>(input);
-	// `input` is a `Promise` but only assumed to be `Promise<number>`.
-
-	const resolved = await input;
-	// `resolved` is typed as `number` but was not actually checked at runtime.
-
-	// Multiplication will return NaN if the input promise did not actually contain a number.
-	return 2 * resolved;
-}
-
-async function goodNumberAssertion(input: unknown) {
-	assert.promise(input);
-	// `input` is typed as `Promise<unknown>`
-
-	const resolved = await input;
-	// `resolved` is typed as `unknown`
-
-	assert.number(resolved);
-	// `resolved` is typed as `number`
-
-	// Uses runtime checks so only numbers will reach the multiplication.
-	return 2 * resolved;
-}
-
-badNumberAssumption(Promise.resolve('An unexpected string'));
-//=> NaN
-
-// This correctly throws an error because of the unexpected string value.
-goodNumberAssertion(Promise.resolve('An unexpected string'));
-```
-
-## FAQ
-
-### Why yet another type checking module?
-
-There are hundreds of type checking modules on npm, unfortunately, I couldn't find any that fit my needs:
-
-- Includes both type methods and ability to get the type
-- Types of primitives returned as lowercase and object types as camelcase
-- Covers all built-ins
-- Unsurprising behavior
-- Well-maintained
-- Comprehensive test suite
-
-For the ones I found, pick 3 of these.
-
-The most common mistakes I noticed in these modules was using `instanceof` for type checking, forgetting that functions are objects, and omitting `symbol` as a primitive.
-
-### Why not just use `instanceof` instead of this package?
-
-`instanceof` does not work correctly for all types and it does not work across [realms](https://stackoverflow.com/a/49832343/64949). Examples of realms are iframes, windows, web workers, and the `vm` module in Node.js.
-
-## Related
-
-- [environment](https://github.com/sindresorhus/environment) - Check which JavaScript environment your code is running in at runtime
-- [is-stream](https://github.com/sindresorhus/is-stream) - Check if something is a Node.js stream
-- [is-observable](https://github.com/sindresorhus/is-observable) - Check if a value is an Observable
-- [file-type](https://github.com/sindresorhus/file-type) - Detect the file type of a Buffer/Uint8Array
-- [is-ip](https://github.com/sindresorhus/is-ip) - Check if a string is an IP address
-- [is-array-sorted](https://github.com/sindresorhus/is-array-sorted) - Check if an Array is sorted
-- [is-error-constructor](https://github.com/sindresorhus/is-error-constructor) - Check if a value is an error constructor
-- [is-empty-iterable](https://github.com/sindresorhus/is-empty-iterable) - Check if an Iterable is empty
-- [is-blob](https://github.com/sindresorhus/is-blob) - Check if a value is a Blob - File-like object of immutable, raw data
-- [has-emoji](https://github.com/sindresorhus/has-emoji) - Check whether a string has any emoji
-
-## Maintainers
-
-- [Sindre Sorhus](https://github.com/sindresorhus)
-- [Giora Guttsait](https://github.com/gioragutt)
-- [Brandon Smith](https://github.com/brandon93s)
+MIT © [Luke Edwards](https://lukeed.com)
