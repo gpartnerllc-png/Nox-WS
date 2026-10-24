@@ -1,32 +1,14 @@
-import { notImplemented } from "../../../_internal/utils.mjs";
-export const access = /* @__PURE__ */ notImplemented("fs.access");
-export const copyFile = /* @__PURE__ */ notImplemented("fs.copyFile");
-export const cp = /* @__PURE__ */ notImplemented("fs.cp");
-export const open = /* @__PURE__ */ notImplemented("fs.open");
-export const opendir = /* @__PURE__ */ notImplemented("fs.opendir");
-export const rename = /* @__PURE__ */ notImplemented("fs.rename");
-export const truncate = /* @__PURE__ */ notImplemented("fs.truncate");
-export const rm = /* @__PURE__ */ notImplemented("fs.rm");
-export const rmdir = /* @__PURE__ */ notImplemented("fs.rmdir");
-export const mkdir = /* @__PURE__ */ notImplemented("fs.mkdir");
-export const readdir = /* @__PURE__ */ notImplemented("fs.readdir");
-export const readlink = /* @__PURE__ */ notImplemented("fs.readlink");
-export const symlink = /* @__PURE__ */ notImplemented("fs.symlink");
-export const lstat = /* @__PURE__ */ notImplemented("fs.lstat");
-export const stat = /* @__PURE__ */ notImplemented("fs.stat");
-export const link = /* @__PURE__ */ notImplemented("fs.link");
-export const unlink = /* @__PURE__ */ notImplemented("fs.unlink");
-export const chmod = /* @__PURE__ */ notImplemented("fs.chmod");
-export const lchmod = /* @__PURE__ */ notImplemented("fs.lchmod");
-export const lchown = /* @__PURE__ */ notImplemented("fs.lchown");
-export const chown = /* @__PURE__ */ notImplemented("fs.chown");
-export const utimes = /* @__PURE__ */ notImplemented("fs.utimes");
-export const lutimes = /* @__PURE__ */ notImplemented("fs.lutimes");
-export const realpath = /* @__PURE__ */ notImplemented("fs.realpath");
-export const mkdtemp = /* @__PURE__ */ notImplemented("fs.mkdtemp");
-export const writeFile = /* @__PURE__ */ notImplemented("fs.writeFile");
-export const appendFile = /* @__PURE__ */ notImplemented("fs.appendFile");
-export const readFile = /* @__PURE__ */ notImplemented("fs.readFile");
-export const watch = /* @__PURE__ */ notImplemented("fs.watch");
-export const statfs = /* @__PURE__ */ notImplemented("fs.statfs");
-export const glob = /* @__PURE__ */ notImplemented("fs.glob");
+import { Scheduler } from "../internal/timers/scheduler.mjs";
+import { setTimeoutFallbackPromises } from "../internal/timers/set-timeout.mjs";
+import { setIntervalFallbackPromises } from "../internal/timers/set-interval.mjs";
+import { setImmediateFallbackPromises } from "../internal/timers/set-immediate.mjs";
+export { setTimeoutFallbackPromises as setTimeout } from "../internal/timers/set-timeout.mjs";
+export { setIntervalFallbackPromises as setInterval } from "../internal/timers/set-interval.mjs";
+export { setImmediateFallbackPromises as setImmediate } from "../internal/timers/set-immediate.mjs";
+export const scheduler = new Scheduler();
+export default {
+	scheduler,
+	setImmediate: setImmediateFallbackPromises,
+	setInterval: setIntervalFallbackPromises,
+	setTimeout: setTimeoutFallbackPromises
+};

@@ -1,1 +1,2 @@
-export declare function inherits(ctor: any, superCtor: any);
+import { inherits } from "node:util";
+export default inherits;
