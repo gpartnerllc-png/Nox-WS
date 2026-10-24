@@ -1,21 +1,40 @@
 {
-  "name": "noxmob-smartpos",
-  "version": "2.2.0",
-  "private": true,
-  "type": "module",
-  "description": "NoxMob SmartPOS — PDV, hotel, WhatsApp com IA e pagamentos por carteira digital em Cloudflare Workers + D1.",
+  "name": "@img/sharp-win32-x64",
+  "version": "0.35.5",
+  "description": "Prebuilt sharp for use with Windows x64",
+  "author": "Lovell Fuller <npm@lovell.info>",
+  "homepage": "https://sharp.pixelplumbing.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lovell/sharp.git",
+    "directory": "npm/win32-x64"
+  },
+  "license": "Apache-2.0 AND LGPL-3.0-or-later",
+  "funding": {
+    "url": "https://opencollective.com/libvips"
+  },
+  "preferUnplugged": true,
+  "files": [
+    "index.cjs",
+    "lib",
+    "versions.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "commonjs",
+  "exports": {
+    "./sharp.node": "./index.cjs",
+    "./package": "./package.json",
+    "./versions": "./versions.json"
+  },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.9.0"
   },
-  "scripts": {
-    "dev": "wrangler dev -c worker/wrangler.toml",
-    "deploy": "wrangler deploy -c worker/wrangler.toml",
-    "check": "node --check worker/src/index.js && node --check worker/src/data.js && node --check worker/src/checkout.js && node --check worker/src/whatsapp.js && node --check worker/src/hotel.js && node --check worker/src/ai.js && node --check worker/src/lib/http.js && node --check worker/src/lib/auth.js && node --check worker/src/lib/payments.js && node --check worker/src/lib/security.js && node --check worker/src/providers/asaas.js && node --check worker/src/providers/inter.js && node --check worker/src/providers/upi.js && node --check worker/src/providers/applepay.js && node --check worker/src/providers/zernio.js && node --check assets/app.js && node --check assets/scene.js && node --check sw.js",
-    "db:migrate:local": "wrangler d1 migrations apply noxmob-db --local -c worker/wrangler.toml",
-    "db:migrate:remote": "wrangler d1 migrations apply noxmob-db --remote -c worker/wrangler.toml",
-    "db:backup:remote": "wrangler d1 export noxmob-db --remote --output=backup-noxmob.sql -c worker/wrangler.toml"
-  },
-  "devDependencies": {
-    "wrangler": "4.151.3"
-  }
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ]
 }
