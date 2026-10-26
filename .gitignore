@@ -1,13 +1,11 @@
 node_modules/
 .wrangler/
-worker/.wrangler/
 .dev.vars
+.dev.vars.*
 .env
 .env.*
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 *.pem
 *.log
-dist/
-worker/dist/
-backup-*.sql
-.DS_Store
-.vscode/
